@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import Spinner from "ink-spinner";
 import { AgentEngine } from "../lib/engine.js";
@@ -20,6 +20,7 @@ function getPhase(turnIndex: number, matchType: string): string {
 }
 
 function wrapText(text: string, width: number): string[] {
+  if (width <= 0) return [text];
   const lines: string[] = [];
   for (const paragraph of text.split("\n")) {
     if (paragraph.length <= width) {
@@ -30,7 +31,7 @@ function wrapText(text: string, width: number): string[] {
     let line = "";
     for (const word of words) {
       if (line.length + word.length + 1 > width) {
-        lines.push(line);
+        if (line) lines.push(line);
         line = word;
       } else {
         line = line ? `${line} ${word}` : word;
@@ -38,143 +39,73 @@ function wrapText(text: string, width: number): string[] {
     }
     if (line) lines.push(line);
   }
+  return lines.length ? lines : [""];
+}
+
+// ── Render a single turn into lines with color info ──
+
+type RenderLine = { text: string; color?: string; dim?: boolean; bold?: boolean; align?: "left" | "right" | "center"; bg?: string };
+
+function renderTurn(
+  agent: string,
+  agentName: string,
+  content: string,
+  side: "A" | "B",
+  matchType: string,
+  turnIndex: number,
+  width: number,
+): RenderLine[] {
+  const color = agent === "A" ? "blue" : agent === "B" ? "red" : "magenta";
+  const isMe = agent === side;
+  const maxW = Math.min(Math.floor(width * 0.7), 76);
+
+  if (agent === "SYSTEM") {
+    return [{ text: `  ↑ injection: "${content}"`, color: "magenta", dim: true, align: "center" }];
+  }
+
+  const phase = getPhase(turnIndex, matchType);
+  const isStatement = matchType === "debate" && (phase === "opening" || phase === "closing");
+  const lines: RenderLine[] = [];
+
+  if (isStatement) {
+    lines.push({ text: `  ┃ ${agentName}`, color, bold: true });
+    for (const l of wrapText(content, maxW - 4)) {
+      lines.push({ text: `  ┃ ${l}`, color: undefined });
+    }
+    lines.push({ text: `  ┗${"━".repeat(Math.min(maxW, width - 4))}`, color });
+    lines.push({ text: "", color: undefined });
+  } else {
+    // Chat bubble
+    const wrapped = wrapText(content, maxW - 4);
+    const bubbleW = Math.min(maxW, Math.max(...wrapped.map((l) => l.length)) + 4);
+    const top = `╭${"─".repeat(bubbleW - 2)}╮`;
+    const bot = `╰${"─".repeat(bubbleW - 2)}╯`;
+    const align = isMe ? "right" : "left";
+    const pad = (s: string) => {
+      const inner = s.length;
+      return s + " ".repeat(Math.max(0, bubbleW - 2 - inner));
+    };
+
+    lines.push({ text: ` ${agentName}`, color, dim: true, bold: true, align });
+    lines.push({ text: top, color, align });
+    for (const l of wrapped) {
+      lines.push({ text: `│ ${pad(l)} │`, color, align });
+    }
+    lines.push({ text: bot, color, align });
+    lines.push({ text: "", color: undefined });
+  }
+
   return lines;
 }
 
 // ── Sub-components ──
 
-function NavBar({ state, agentName, phase }: { state: MatchState | null; agentName: string; phase: AgentPhase }) {
+function FullWidthBar({ children, bg }: { children: React.ReactNode; bg?: string }) {
   return (
-    <Box paddingX={1} height={1}>
-      <Text bold color="white" backgroundColor="black"> DEAD</Text>
-      <Text bold color="red" backgroundColor="black">NET </Text>
-      <Text backgroundColor="black" color="gray"> {agentName} </Text>
-      {state && (
-        <>
-          <Text backgroundColor="black" color="gray"> #{state.match_id.slice(-4)} </Text>
-          <Text backgroundColor="black" color="green"> {state.status === "active" ? "● LIVE" : state.status} </Text>
-          <Box flexGrow={1}><Text backgroundColor="black"> </Text></Box>
-          <Text backgroundColor="black" color="gray"> {state.time_remaining_seconds}s </Text>
-        </>
-      )}
-      {!state && <Box flexGrow={1}><Text backgroundColor="black"> </Text></Box>}
-    </Box>
-  );
-}
-
-function TopicBar({ state }: { state: MatchState }) {
-  return (
-    <Box paddingX={1} height={1}>
-      <Text backgroundColor="yellow" color="black" bold> {state.match_type.toUpperCase()} </Text>
-      <Text backgroundColor="yellow" color="black"> {state.topic.length > 70 ? state.topic.slice(0, 67) + "..." : state.topic} </Text>
-      <Box flexGrow={1}><Text backgroundColor="yellow"> </Text></Box>
-    </Box>
-  );
-}
-
-function ScoreBar({ state, agentName }: { state: MatchState; agentName: string }) {
-  const oppName = state.opponent.name;
-  const myScore = state.score[state.your_side] || 0;
-  const oppScore = state.score[state.your_side === "A" ? "B" : "A"] || 0;
-  const total = myScore + oppScore || 1;
-  const myPct = Math.round((myScore / total) * 100);
-  const oppPct = 100 - myPct;
-  const myColor = state.your_side === "A" ? "blue" : "red";
-  const oppColor = state.your_side === "A" ? "red" : "blue";
-
-  return (
-    <Box paddingX={1} gap={1} height={1}>
-      <Text bold color={myColor}>{agentName} {myPct}%</Text>
-      <Text color="gray">({myScore})</Text>
-      <Text bold color={myColor}>{"█".repeat(Math.round(myPct / 5))}</Text>
-      <Text bold color={oppColor}>{"█".repeat(Math.round(oppPct / 5))}</Text>
-      <Text color="gray">({oppScore})</Text>
-      <Text bold color={oppColor}>{oppPct}% {oppName}</Text>
-    </Box>
-  );
-}
-
-function PhaseDivider({ label }: { label: string }) {
-  return (
-    <Box paddingX={1} height={1}>
-      <Text backgroundColor="black" color="white" bold> {label.toUpperCase()} </Text>
-      <Box flexGrow={1}><Text backgroundColor="black" color="gray">{"─".repeat(60)}</Text></Box>
-    </Box>
-  );
-}
-
-function TurnBubble({
-  agent,
-  agentName,
-  content,
-  side,
-  matchType,
-  turnIndex,
-  termWidth,
-}: {
-  agent: string;
-  agentName: string;
-  content: string;
-  side: "A" | "B";
-  matchType: string;
-  turnIndex: number;
-  termWidth: number;
-}) {
-  const isMe = agent === side;
-  const color = agent === "A" ? "blue" : "red";
-  const maxW = Math.min(Math.floor(termWidth * 0.75), 80);
-
-  if (agent === "SYSTEM") {
-    return (
-      <Box paddingX={2} justifyContent="center">
-        <Text color="magenta" dimColor>↑ injection: "{content}"</Text>
-      </Box>
-    );
-  }
-
-  const phase = getPhase(turnIndex, matchType);
-  const isStatement = matchType === "debate" && (phase === "opening" || phase === "closing");
-
-  if (isStatement) {
-    // Statement style — bordered block
-    const lines = wrapText(content, maxW - 4);
-    return (
-      <Box flexDirection="column" paddingX={2} paddingY={0}>
-        <Box gap={1}>
-          <Text bold color={color}>┃ {agentName}</Text>
-        </Box>
-        {lines.map((line, i) => (
-          <Box key={i}>
-            <Text color={color}>┃</Text>
-            <Text> {line}</Text>
-          </Box>
-        ))}
-        <Text color={color}>┗{"━".repeat(maxW - 1)}</Text>
-      </Box>
-    );
-  }
-
-  // Bubble style — rebuttal / freeform / story
-  const lines = wrapText(content, maxW - 6);
-  const bubbleAlign = isMe ? "flex-end" : "flex-start";
-
-  return (
-    <Box flexDirection="column" paddingX={2} alignItems={bubbleAlign}>
-      <Text color={color} dimColor bold> {agentName}</Text>
-      <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1} width={Math.min(maxW, Math.max(...lines.map(l => l.length)) + 4)}>
-        {lines.map((line, i) => (
-          <Text key={i}>{line}</Text>
-        ))}
-      </Box>
-    </Box>
-  );
-}
-
-function ThinkingIndicator({ agentName, color }: { agentName: string; color: string }) {
-  return (
-    <Box paddingX={2} gap={1}>
-      <Text color={color}><Spinner type="dots" /></Text>
-      <Text color={color} dimColor>{agentName} is thinking...</Text>
+    <Box width="100%">
+      <Text backgroundColor={bg || "black"} wrap="truncate-end">
+        {children}
+      </Text>
     </Box>
   );
 }
@@ -187,21 +118,16 @@ export function PrettyApp({ config, provider }: Props) {
   const [phase, setPhase] = useState<AgentPhase>("init");
   const [agentName, setAgentName] = useState("?");
   const [matchState, setMatchState] = useState<MatchState | null>(null);
-  const [statusMsg, setStatusMsg] = useState("initializing...");
   const [engine] = useState(() => new AgentEngine(config, provider));
 
-  const termWidth = stdout?.columns || 80;
+  const cols = stdout?.columns || 80;
+  const rows = stdout?.rows || 24;
 
   useEffect(() => {
-    const unsub = engine.on((newPhase, data) => {
+    const unsub = engine.on((newPhase) => {
       setPhase(newPhase);
       setAgentName(engine.agentName);
       setMatchState(engine.lastState ? { ...engine.lastState } : null);
-
-      // Status message for non-match phases
-      if (data && typeof data === "object" && "message" in data) {
-        setStatusMsg(data.message);
-      }
     });
 
     engine.run().then(() => {
@@ -216,102 +142,182 @@ export function PrettyApp({ config, provider }: Props) {
   useInput((input, key) => {
     if (input === "q" || (key.ctrl && input === "c")) {
       engine.stop();
+      process.stdout.write("\x1b[?25h"); // restore cursor
       exit();
     }
   });
 
-  // Pre-match states
-  if (!matchState || matchState.status === "waiting") {
+  // Pre-match: centered splash
+  if (!matchState || matchState.status !== "active") {
+    const isWaiting = ["connecting", "queuing", "waiting", "init"].includes(phase);
+    const statusText =
+      phase === "connecting" ? "connecting..." :
+      phase === "queuing" ? `joining ${config.matchType} queue...` :
+      phase === "waiting" ? "waiting for opponent..." :
+      phase === "init" ? "initializing..." :
+      phase === "match_end" ? "match ended" :
+      phase === "error" ? "error — check config" :
+      phase === "exiting" ? "done" : "...";
+
     return (
-      <Box flexDirection="column" height="100%">
-        <NavBar state={null} agentName={agentName} phase={phase} />
-        <Box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column" gap={1}>
-          <Box gap={1}>
-            <Text bold>DEAD</Text><Text bold color="red">NET</Text>
+      <Box flexDirection="column" width={cols} height={rows}>
+        <Box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
+          <Box gap={0}>
+            <Text bold color="white">DEAD</Text>
+            <Text bold color="red">NET</Text>
           </Box>
+          <Text> </Text>
           <Box gap={1}>
-            <Text color="yellow"><Spinner type="dots" /></Text>
-            <Text color="yellow">
-              {phase === "connecting" && "connecting..."}
-              {phase === "queuing" && `joining ${config.matchType} queue...`}
-              {phase === "waiting" && "waiting for opponent..."}
-              {phase === "init" && "initializing..."}
-              {phase === "error" && "error — check config"}
-              {phase === "exiting" && "done"}
-              {!["connecting", "queuing", "waiting", "init", "error", "exiting"].includes(phase) && statusMsg}
-            </Text>
+            {isWaiting && <Text color="yellow"><Spinner type="dots" /></Text>}
+            <Text color={isWaiting ? "yellow" : "gray"}>{statusText}</Text>
           </Box>
           {agentName !== "?" && (
-            <Text dimColor>playing as {agentName} • {config.provider}/{config.model}</Text>
+            <>
+              <Text> </Text>
+              <Text dimColor>{agentName} • {config.provider}/{config.model}</Text>
+            </>
           )}
         </Box>
-        <Box paddingX={1}>
+        <Box paddingX={1} justifyContent="center">
           <Text dimColor>q to quit</Text>
         </Box>
       </Box>
     );
   }
 
-  // In-match view
+  // ── In-match fullscreen ──
   const s = matchState;
   const history = s.history || [];
   const oppName = s.opponent.name;
   const myName = agentName;
 
-  // Group turns by phase for debate
-  let lastPhase = "";
+  // Build all rendered lines
+  const allLines = useMemo(() => {
+    const result: RenderLine[] = [];
+    let lastP = "";
+
+    for (let i = 0; i < history.length; i++) {
+      const turn = history[i];
+      const p = getPhase(i, s.match_type);
+
+      if (s.match_type === "debate" && p !== lastP) {
+        lastP = p;
+        const label = p === "opening" ? "OPENING STATEMENTS" : p === "rebuttal" ? "REBUTTALS" : "CLOSING STATEMENTS";
+        result.push({ text: ` ${label} ${"─".repeat(Math.max(0, cols - label.length - 3))}`, bg: "black", color: "white", bold: true });
+      }
+
+      const turnName = turn.agent === s.your_side ? myName : turn.agent === "SYSTEM" ? "SYSTEM" : oppName;
+      result.push(...renderTurn(turn.agent, turnName, turn.content, s.your_side, s.match_type, i, cols));
+    }
+
+    return result;
+  }, [history.length, s.match_type, cols, myName, oppName, s.your_side]);
+
+  // Reserve lines: header(1) + topic(1) + score(1) + bottom(1) = 4, plus thinking(1)
+  const headerLines = s.match_type === "story" ? 2 : 3;
+  const footerLines = 2; // status + thinking/spacer
+  const transcriptHeight = rows - headerLines - footerLines;
+
+  // Show last N lines of transcript (chat-style, grows from bottom)
+  const visibleLines = allLines.slice(-Math.max(1, transcriptHeight));
+  // Pad with empty lines if transcript is shorter than available space
+  const padCount = Math.max(0, transcriptHeight - visibleLines.length);
+
+  // Score bar
+  const myScore = s.score[s.your_side] || 0;
+  const oppScore = s.score[s.your_side === "A" ? "B" : "A"] || 0;
+  const total = myScore + oppScore || 1;
+  const myPct = Math.round((myScore / total) * 100);
+  const oppPct = 100 - myPct;
+  const barWidth = Math.max(0, cols - 30);
+  const myBlocks = Math.round((myPct / 100) * barWidth);
+  const oppBlocks = barWidth - myBlocks;
+  const myColor = s.your_side === "A" ? "blue" : "red";
+  const oppColor = s.your_side === "A" ? "red" : "blue";
+
+  // Thinking
+  const isThinking = phase === "thinking";
+  const isOppTurn = phase === "opponent_turn";
+  const thinkingName = isThinking ? myName : isOppTurn ? oppName : null;
+  const thinkingColor = isThinking ? myColor : oppColor;
+
+  // Timer
+  const timeStr = `${Math.floor(s.time_remaining_seconds / 60)}:${String(Math.floor(s.time_remaining_seconds % 60)).padStart(2, "0")}`;
 
   return (
-    <Box flexDirection="column" height="100%">
-      <NavBar state={s} agentName={myName} phase={phase} />
-      <TopicBar state={s} />
-      {s.match_type !== "story" && <ScoreBar state={s} agentName={myName} />}
+    <Box flexDirection="column" width={cols} height={rows}>
+      {/* Nav */}
+      <Box>
+        <Text bold backgroundColor="black" color="white"> DEAD</Text>
+        <Text bold backgroundColor="black" color="red">NET</Text>
+        <Text backgroundColor="black" color="gray"> {myName} </Text>
+        <Text backgroundColor="black" color="gray">#{s.match_id.slice(-4)} </Text>
+        <Text backgroundColor="black" color="green">● LIVE </Text>
+        <Text backgroundColor="black">{" ".repeat(Math.max(0, cols - myName.length - s.match_id.slice(-4).length - 24))}</Text>
+        <Text backgroundColor="black" color="white"> {timeStr} </Text>
+      </Box>
 
-      {/* Transcript */}
-      <Box flexDirection="column" flexGrow={1} overflowY="hidden" paddingY={1}>
-        {history.map((turn, i) => {
-          const elements: React.ReactNode[] = [];
-          const currentPhase = getPhase(i, s.match_type);
+      {/* Topic */}
+      <Box>
+        <Text backgroundColor="yellow" color="black" bold> {s.match_type.toUpperCase()} </Text>
+        <Text backgroundColor="yellow" color="black"> {s.topic.slice(0, cols - s.match_type.length - 4)}</Text>
+        <Text backgroundColor="yellow">{" ".repeat(Math.max(0, cols - s.topic.length - s.match_type.length - 4))}</Text>
+      </Box>
 
-          if (s.match_type === "debate" && currentPhase !== lastPhase) {
-            lastPhase = currentPhase;
-            elements.push(<PhaseDivider key={`phase-${i}`} label={currentPhase === "opening" ? "opening statements" : currentPhase === "rebuttal" ? "rebuttals" : "closing statements"} />);
-          }
+      {/* Score (not for story) */}
+      {s.match_type !== "story" && (
+        <Box gap={0}>
+          <Text bold color={myColor}> {myName} {myPct}% </Text>
+          <Text bold color={myColor}>{"█".repeat(myBlocks)}</Text>
+          <Text bold color={oppColor}>{"█".repeat(oppBlocks)}</Text>
+          <Text bold color={oppColor}> {oppPct}% {oppName}</Text>
+        </Box>
+      )}
 
-          const turnAgentName = turn.agent === s.your_side ? myName : (turn.agent === "SYSTEM" ? "SYSTEM" : oppName);
+      {/* Transcript — fills remaining space, bottom-aligned */}
+      {padCount > 0 && (
+        <Box flexDirection="column" height={padCount}>
+          {Array.from({ length: padCount }, (_, i) => (
+            <Text key={`pad-${i}`}> </Text>
+          ))}
+        </Box>
+      )}
+      <Box flexDirection="column">
+        {visibleLines.map((line, i) => (
+          <Box key={i} justifyContent={line.align === "right" ? "flex-end" : line.align === "center" ? "center" : "flex-start"} width={cols}>
+            <Text
+              color={line.color}
+              dimColor={line.dim}
+              bold={line.bold}
+              backgroundColor={line.bg}
+              wrap="truncate-end"
+            >
+              {line.text}
+            </Text>
+          </Box>
+        ))}
+      </Box>
 
-          elements.push(
-            <TurnBubble
-              key={`turn-${i}`}
-              agent={turn.agent}
-              agentName={turnAgentName}
-              content={turn.content}
-              side={s.your_side}
-              matchType={s.match_type}
-              turnIndex={i}
-              termWidth={termWidth}
-            />
-          );
-
-          return elements;
-        })}
-
-        {/* Thinking indicator */}
-        {phase === "thinking" && (
-          <ThinkingIndicator agentName={myName} color={s.your_side === "A" ? "blue" : "red"} />
-        )}
-        {phase === "opponent_turn" && (
-          <ThinkingIndicator agentName={oppName} color={s.your_side === "A" ? "red" : "blue"} />
+      {/* Thinking / spacer */}
+      <Box height={1} paddingX={1}>
+        {thinkingName ? (
+          <Box gap={1}>
+            <Text color={thinkingColor}><Spinner type="dots" /></Text>
+            <Text color={thinkingColor} dimColor>{thinkingName} is thinking...</Text>
+          </Box>
+        ) : (
+          <Text> </Text>
         )}
       </Box>
 
       {/* Bottom bar */}
-      <Box paddingX={1} gap={2} height={1} borderStyle="single" borderColor="gray" borderTop borderBottom={false} borderLeft={false} borderRight={false}>
-        <Text dimColor>turn {s.turn_number}/{s.max_turns}</Text>
-        {s.phase && <Text color="yellow">{s.phase.name}</Text>}
-        {s.your_position && <Text color="cyan">{s.your_position}</Text>}
-        <Box flexGrow={1} />
-        <Text dimColor>q to quit</Text>
+      <Box>
+        <Text backgroundColor="#222" color="gray"> turn {s.turn_number}/{s.max_turns} </Text>
+        {s.phase && <Text backgroundColor="#222" color="yellow"> {s.phase.name} </Text>}
+        {s.your_position && <Text backgroundColor="#222" color="cyan"> {s.your_position} </Text>}
+        <Text backgroundColor="#222">{" ".repeat(Math.max(0, cols - 30 - (s.phase?.name.length || 0) - (s.your_position?.length || 0)))}</Text>
+        <Text backgroundColor="#222" color="gray"> {engine.apiCalls} calls • {engine.totalInputTokens}in/{engine.totalOutputTokens}out </Text>
+        <Text backgroundColor="#222" dimColor> q quit </Text>
       </Box>
     </Box>
   );

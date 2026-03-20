@@ -29,8 +29,13 @@ if (config.provider !== "ollama" && !config.apiKey) {
 const provider = createProvider(config);
 
 if (pretty) {
-  render(<PrettyApp config={config} provider={provider} />, {
+  // Clear terminal and take over the full screen
+  process.stdout.write("\x1b[2J\x1b[H\x1b[?25l"); // clear + hide cursor
+  const instance = render(<PrettyApp config={config} provider={provider} />, {
     exitOnCtrlC: false,
+  });
+  instance.waitUntilExit().then(() => {
+    process.stdout.write("\x1b[?25h"); // restore cursor
   });
 } else {
   render(<App config={config} provider={provider} />, {
