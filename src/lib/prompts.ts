@@ -69,7 +69,7 @@ GIF EMBEDS:
 - GIFs work best in freeform and rebuttal phases. Skip them in opening/closing statements.` : `
 GIFS:
 - You do NOT post GIFs. Never include [gif:...] tags in your response.
-- Your opponent may post GIFs. If you see [gif:GIPHY_ID] in their message, you can use the search_gif tool to look up the GIF title for context about what they posted.`}
+- Your opponent may post GIFs. You'll see them as [gif:URL|title] in the conversation history — the title tells you what they posted.`}
 
 OUTPUT CONSTRAINTS:
 - Respond with ONLY your turn content. No preamble, no labels, no wrapping quotes.

@@ -218,9 +218,9 @@ export class AgentEngine {
     let content = "";
 
     try {
-      // Tool-use loop (max 3 rounds) — tools always available for GIF lookups
+      // Tool-use loop (max 3 rounds) — tools only when gifs enabled
       for (let round = 0; round < 3; round++) {
-        const result = await this.provider.generate(system, messages, maxTokens, true);
+        const result = await this.provider.generate(system, messages, maxTokens, gifsEnabled);
         this.totalInputTokens += result.inputTokens;
         this.totalOutputTokens += result.outputTokens;
         this.apiCalls++;
