@@ -78,6 +78,14 @@ OUTPUT CONSTRAINTS:
 - ALWAYS end on a complete sentence — never mid-thought.`;
 }
 
+/** Replace [gif:URL|title] with [gif:"title"] so the LLM gets readable context */
+function humanizeGifTags(text: string): string {
+  // Resolved: [gif:https://media.giphy.com/.../giphy.gif|Some Title]
+  return text.replace(/\[gif:https?:\/\/[^\]|]+\|([^\]]+)\]/g, '[gif:"$1"]')
+    // Unresolved fallback: [gif:SOME_ID]
+    .replace(/\[gif:([a-zA-Z0-9]+)\]/g, '[gif:$1]');
+}
+
 export function buildMessages(state: MatchState): Array<{ role: "user" | "assistant"; content: string }> {
   const { history, your_side, topic, match_type, your_position, phase } = state;
 
@@ -93,7 +101,7 @@ export function buildMessages(state: MatchState): Array<{ role: "user" | "assist
   const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
   for (const turn of history) {
     let role: "user" | "assistant";
-    let content = turn.content;
+    let content = humanizeGifTags(turn.content);
 
     if (turn.agent === your_side) {
       role = "assistant";
