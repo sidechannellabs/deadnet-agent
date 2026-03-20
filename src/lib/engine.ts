@@ -1,0 +1,306 @@
+import { DeadNetClient, APIError } from "./api.js";
+import { buildSystemPrompt, buildMessages } from "./prompts.js";
+import type { LLMProvider } from "../providers/base.js";
+import type { AgentConfig, AgentPhase, LogEntry, MatchState } from "./types.js";
+
+type Listener = (phase: AgentPhase, data?: any) => void;
+
+export class AgentEngine {
+  config: AgentConfig;
+  client: DeadNetClient;
+  provider: LLMProvider;
+
+  agentName = "?";
+  matchId: string | null = null;
+  lastState: MatchState | null = null;
+  phase: AgentPhase = "init";
+  logs: LogEntry[] = [];
+  totalInputTokens = 0;
+  totalOutputTokens = 0;
+  apiCalls = 0;
+
+  private listeners: Listener[] = [];
+  private running = false;
+
+  constructor(config: AgentConfig, provider: LLMProvider) {
+    this.config = config;
+    this.client = new DeadNetClient(config.deadnetApi, config.deadnetToken);
+    this.provider = provider;
+  }
+
+  on(listener: Listener) {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  private emit(phase: AgentPhase, data?: any) {
+    this.phase = phase;
+    this.listeners.forEach((l) => l(phase, data));
+  }
+
+  private log(level: LogEntry["level"], message: string) {
+    const entry: LogEntry = {
+      time: new Date().toLocaleTimeString("en-US", { hour12: false }),
+      level,
+      message,
+    };
+    this.logs.push(entry);
+    if (this.logs.length > 200) this.logs.shift();
+    this.emit(this.phase, entry);
+  }
+
+  async run() {
+    this.running = true;
+    try {
+      await this.connect();
+      while (this.running) {
+        if (this.matchId) {
+          await this.play();
+        } else {
+          await this.queue();
+        }
+        if (!this.matchId && !this.config.autoRequeue) {
+          this.log("info", "exiting (auto-requeue disabled)");
+          this.emit("exiting");
+          return;
+        }
+      }
+    } catch (e: any) {
+      this.log("error", `fatal: ${e.message}`);
+      this.emit("error", e);
+    }
+  }
+
+  stop() {
+    this.running = false;
+  }
+
+  // ── CONNECT ──
+
+  private async connect() {
+    this.emit("connecting");
+    this.log("info", "connecting...");
+
+    try {
+      const resp = await this.client.connect();
+      this.agentName = resp.name || "?";
+      this.matchId = resp.current_match_id || null;
+      const stats = resp.stats || {};
+      this.log("info", `connected as "${this.agentName}" — ${stats.matches_played || 0} matches, ${stats.debate_wins || 0} wins`);
+      if (this.matchId) {
+        this.log("info", `resuming match ${this.matchId}`);
+      }
+    } catch (e: any) {
+      if (e instanceof APIError && e.status === 401) {
+        this.log("error", "authentication failed — check DEADNET_TOKEN");
+        this.emit("error");
+        throw e;
+      }
+      throw e;
+    }
+  }
+
+  // ── QUEUE ──
+
+  private async queue() {
+    this.emit("queuing");
+    this.log("info", `joining ${this.config.matchType} queue...`);
+
+    try {
+      const resp = await this.client.joinQueue(this.config.matchType);
+      if (resp.matched) {
+        this.matchId = resp.match_id;
+        this.log("info", `instantly matched! match_id=${this.matchId}`);
+        return;
+      }
+      this.log("info", `queued at position ${resp.position || "?"} — waiting...`);
+    } catch (e: any) {
+      if (e instanceof APIError) {
+        if (e.error === "already_in_match") {
+          const cr = await this.client.connect();
+          this.matchId = cr.current_match_id || null;
+          if (this.matchId) this.log("info", `already in match ${this.matchId}`);
+          return;
+        }
+        if (e.error === "already_in_queue") {
+          this.log("info", "already in queue — waiting...");
+        } else {
+          throw e;
+        }
+      } else {
+        throw e;
+      }
+    }
+
+    this.emit("waiting");
+    while (!this.matchId && this.running) {
+      await this.sleep(7000);
+      try {
+        const resp = await this.client.connect();
+        this.matchId = resp.current_match_id || null;
+        if (this.matchId) this.log("info", `matched! match_id=${this.matchId}`);
+      } catch {
+        /* retry */
+      }
+    }
+  }
+
+  // ── PLAY ──
+
+  private async play() {
+    this.emit("playing");
+    this.resetUsage();
+
+    while (this.running) {
+      let state: MatchState;
+      try {
+        state = await this.client.getMatchState(this.matchId!);
+      } catch (e: any) {
+        if (e instanceof APIError && ["match_not_found", "not_in_match"].includes(e.error)) {
+          this.log("warn", `match gone (${e.error})`);
+          break;
+        }
+        throw e;
+      }
+
+      this.lastState = state;
+
+      if (state.status === "waiting") {
+        this.log("info", "match waiting for activation...");
+        await this.sleep(5000);
+        continue;
+      }
+
+      if (state.status !== "active") {
+        this.log("info", `match ended (status=${state.status})`);
+        break;
+      }
+
+      if (state.current_turn === state.your_side) {
+        const phase = state.phase;
+        const phaseStr = phase ? ` [${phase.name.toUpperCase()}]` : "";
+        const posStr = state.your_position ? ` (${state.your_position})` : "";
+        this.log(
+          "info",
+          `turn ${state.turn_number}/${state.max_turns}${phaseStr}${posStr} vs ${state.opponent.name} — budget=${state.token_budget_this_turn}t, ${state.time_remaining_seconds}s left`,
+        );
+        await this.takeTurn(state);
+      } else {
+        this.emit("opponent_turn");
+        await this.sleep(7000);
+      }
+    }
+
+    await this.onMatchEnd();
+  }
+
+  private async takeTurn(state: MatchState) {
+    this.emit("thinking");
+    this.log("info", "thinking...");
+
+    const system = buildSystemPrompt(state, this.config.personality);
+    let messages: Array<{ role: "user" | "assistant"; content: any }> = buildMessages(state);
+    const budget = state.token_budget_this_turn || 150;
+    const maxTokens = Math.max(300, budget * 2);
+
+    let content = "";
+
+    try {
+      // Tool-use loop (max 3 rounds)
+      for (let round = 0; round < 3; round++) {
+        const result = await this.provider.generate(system, messages, maxTokens, true);
+        this.totalInputTokens += result.inputTokens;
+        this.totalOutputTokens += result.outputTokens;
+        this.apiCalls++;
+
+        if (result.toolCalls.length > 0) {
+          // Append assistant response with tool calls
+          messages = [...messages, { role: "assistant", content: result }];
+          const toolResults: any[] = [];
+
+          for (const tc of result.toolCalls) {
+            if (tc.name === "search_gif") {
+              const query = tc.input.query || "";
+              this.log("info", `searching gif: "${query}"`);
+              try {
+                const res = await this.client.searchGif(query);
+                const gifs = res.results || [];
+                if (gifs.length > 0) {
+                  const summary = gifs.slice(0, 5).map((g) => `- ID: ${g.id} — "${g.title}"`).join("\n");
+                  toolResults.push({ type: "tool_result", tool_use_id: tc.id, content: `Found ${gifs.length} GIFs:\n${summary}\n\nEmbed one as [gif:ID] in your response text.` });
+                } else {
+                  toolResults.push({ type: "tool_result", tool_use_id: tc.id, content: "No GIFs found. Continue without a GIF." });
+                }
+              } catch {
+                toolResults.push({ type: "tool_result", tool_use_id: tc.id, content: "GIF search unavailable. Continue without a GIF." });
+              }
+            }
+          }
+
+          messages = [...messages, { role: "user", content: toolResults }];
+          continue;
+        }
+
+        content = result.content;
+        break;
+      }
+    } catch (e: any) {
+      this.log("error", `LLM error: ${e.message}`);
+      return;
+    }
+
+    if (!content || content.length < 5) {
+      this.log("warn", "generated response too short — skipping");
+      return;
+    }
+
+    this.emit("submitting");
+    this.log("info", `submitting (${content.split(/\s+/).length} words)...`);
+
+    try {
+      const resp = await this.client.submitTurn(this.matchId!, content);
+      if (resp.accepted) {
+        this.log("info", `turn ${resp.turn_number || "?"} accepted`);
+        if (resp.match_ended) this.log("info", "match ended after this turn");
+      } else {
+        this.log("warn", `submit rejected: ${resp.error}`);
+      }
+    } catch (e: any) {
+      this.log("error", `submit error: ${e.message}`);
+    }
+  }
+
+  private async onMatchEnd() {
+    this.emit("match_end");
+
+    if (this.matchId && this.lastState) {
+      const s = this.lastState;
+      const myScore = s.score[s.your_side] || 0;
+      const oppScore = s.score[s.your_side === "A" ? "B" : "A"] || 0;
+      const result = myScore > oppScore ? "won" : myScore < oppScore ? "lost" : "tied";
+      this.log("info", `match ${this.matchId} — ${result} vs ${s.opponent.name} (${myScore}-${oppScore})`);
+    }
+
+    this.log("info", `usage: ${this.apiCalls} calls, ${this.totalInputTokens} in / ${this.totalOutputTokens} out`);
+
+    this.matchId = null;
+    this.lastState = null;
+
+    if (this.config.autoRequeue && this.running) {
+      this.log("info", "re-queuing in 5s...");
+      await this.sleep(5000);
+    }
+  }
+
+  private resetUsage() {
+    this.totalInputTokens = 0;
+    this.totalOutputTokens = 0;
+    this.apiCalls = 0;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+}
