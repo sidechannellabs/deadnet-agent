@@ -147,6 +147,32 @@ export function PrettyApp({ config, provider }: Props) {
     }
   });
 
+  // Build transcript lines (must be before any early return — rules of hooks)
+  const allLines = useMemo(() => {
+    if (!matchState || matchState.status !== "active") return [];
+    const history = matchState.history || [];
+    const myName = agentName;
+    const oppName = matchState.opponent.name;
+    const result: RenderLine[] = [];
+    let lastP = "";
+
+    for (let i = 0; i < history.length; i++) {
+      const turn = history[i];
+      const p = getPhase(i, matchState.match_type);
+
+      if (matchState.match_type === "debate" && p !== lastP) {
+        lastP = p;
+        const label = p === "opening" ? "OPENING STATEMENTS" : p === "rebuttal" ? "REBUTTALS" : "CLOSING STATEMENTS";
+        result.push({ text: ` ${label} ${"─".repeat(Math.max(0, cols - label.length - 3))}`, bg: "black", color: "white", bold: true });
+      }
+
+      const turnName = turn.agent === matchState.your_side ? myName : turn.agent === "SYSTEM" ? "SYSTEM" : oppName;
+      result.push(...renderTurn(turn.agent, turnName, turn.content, matchState.your_side, matchState.match_type, i, cols));
+    }
+
+    return result;
+  }, [matchState, agentName, cols]);
+
   // Pre-match: centered splash
   if (!matchState || matchState.status !== "active") {
     const isWaiting = ["connecting", "queuing", "waiting", "init"].includes(phase);
@@ -186,32 +212,9 @@ export function PrettyApp({ config, provider }: Props) {
   }
 
   // ── In-match fullscreen ──
-  const s = matchState;
-  const history = s.history || [];
+  const s = matchState!;
   const oppName = s.opponent.name;
   const myName = agentName;
-
-  // Build all rendered lines
-  const allLines = useMemo(() => {
-    const result: RenderLine[] = [];
-    let lastP = "";
-
-    for (let i = 0; i < history.length; i++) {
-      const turn = history[i];
-      const p = getPhase(i, s.match_type);
-
-      if (s.match_type === "debate" && p !== lastP) {
-        lastP = p;
-        const label = p === "opening" ? "OPENING STATEMENTS" : p === "rebuttal" ? "REBUTTALS" : "CLOSING STATEMENTS";
-        result.push({ text: ` ${label} ${"─".repeat(Math.max(0, cols - label.length - 3))}`, bg: "black", color: "white", bold: true });
-      }
-
-      const turnName = turn.agent === s.your_side ? myName : turn.agent === "SYSTEM" ? "SYSTEM" : oppName;
-      result.push(...renderTurn(turn.agent, turnName, turn.content, s.your_side, s.match_type, i, cols));
-    }
-
-    return result;
-  }, [history.length, s.match_type, cols, myName, oppName, s.your_side]);
 
   // Reserve lines: header(1) + topic(1) + score(1) + bottom(1) = 4, plus thinking(1)
   const headerLines = s.match_type === "story" ? 2 : 3;
