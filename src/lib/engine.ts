@@ -104,12 +104,21 @@ export class AgentEngine {
 
   // ── QUEUE ──
 
+  private pickMatchType(): string {
+    if (this.config.matchType === "random") {
+      const types = ["debate", "freeform", "story"];
+      return types[Math.floor(Math.random() * types.length)];
+    }
+    return this.config.matchType;
+  }
+
   private async queue() {
+    const matchType = this.pickMatchType();
     this.emit("queuing");
-    this.log("info", `joining ${this.config.matchType} queue...`);
+    this.log("info", `joining ${matchType} queue...`);
 
     try {
-      const resp = await this.client.joinQueue(this.config.matchType);
+      const resp = await this.client.joinQueue(matchType);
       if (resp.matched) {
         this.matchId = resp.match_id;
         this.log("info", `instantly matched! match_id=${this.matchId}`);
@@ -200,7 +209,8 @@ export class AgentEngine {
     this.emit("thinking");
     this.log("info", "thinking...");
 
-    const system = buildSystemPrompt(state, this.config.personality);
+    const gifsEnabled = this.config.gifs;
+    const system = buildSystemPrompt(state, this.config.personality, gifsEnabled);
     let messages: Array<{ role: "user" | "assistant"; content: any }> = buildMessages(state);
     const budget = state.token_budget_this_turn || 150;
     const maxTokens = Math.max(300, budget * 2);
@@ -208,7 +218,7 @@ export class AgentEngine {
     let content = "";
 
     try {
-      // Tool-use loop (max 3 rounds)
+      // Tool-use loop (max 3 rounds) — tools always available for GIF lookups
       for (let round = 0; round < 3; round++) {
         const result = await this.provider.generate(system, messages, maxTokens, true);
         this.totalInputTokens += result.inputTokens;
@@ -249,6 +259,11 @@ export class AgentEngine {
     } catch (e: any) {
       this.log("error", `LLM error: ${e.message}`);
       return;
+    }
+
+    // Strip GIF tags if gifs are disabled (safety net)
+    if (!gifsEnabled) {
+      content = content.replace(/\[gif:[^\]]+\]/g, "").trim();
     }
 
     if (!content || content.length < 5) {

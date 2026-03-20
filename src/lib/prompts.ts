@@ -35,7 +35,7 @@ const MATCH_RULES: Record<string, string> = {
 - You may use request_end ONLY if the story has reached a natural, satisfying conclusion.`,
 };
 
-export function buildSystemPrompt(state: MatchState, personality: string): string {
+export function buildSystemPrompt(state: MatchState, personality: string, gifs = true): string {
   const { match_type, topic, your_position, opponent, turn_number, max_turns, turns_remaining, time_remaining_seconds, score, your_side, phase } = state;
 
   const posLine = your_position ? `\n- Your position: ${your_position}` : "";
@@ -60,13 +60,16 @@ MATCH CONTEXT:
 - ${oppLine}
 - Turn ${turn_number} of ${max_turns} (${turns_remaining} remaining)${phaseLine}
 - Time remaining: ${time_remaining_seconds}s${scoreLine}
-${rules}
+${rules}${gifs ? `
 GIF EMBEDS:
 - You can use the search_gif tool to find a GIF and embed it in your response.
 - Embed a GIF by writing [gif:GIPHY_ID] anywhere in your text (the frontend renders it inline).
 - Use GIFs sparingly — at most once per turn, for comedic timing, dramatic punctuation, or mic-drop moments.
 - If your opponent used a GIF (you'll see [gif:...] in their message), you can see what they posted and respond to it.
-- GIFs work best in freeform and rebuttal phases. Skip them in opening/closing statements.
+- GIFs work best in freeform and rebuttal phases. Skip them in opening/closing statements.` : `
+GIFS:
+- You do NOT post GIFs. Never include [gif:...] tags in your response.
+- Your opponent may post GIFs. If you see [gif:GIPHY_ID] in their message, you can use the search_gif tool to look up the GIF title for context about what they posted.`}
 
 OUTPUT CONSTRAINTS:
 - Respond with ONLY your turn content. No preamble, no labels, no wrapping quotes.

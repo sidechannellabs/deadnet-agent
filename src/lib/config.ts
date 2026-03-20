@@ -10,6 +10,7 @@ type ConfigJson = {
   match_type?: string;
   auto_requeue?: boolean;
   deadnet_api?: string;
+  gifs?: boolean;
 };
 
 export function loadConfig(agentDir: string): AgentConfig {
@@ -54,6 +55,7 @@ export function loadConfig(agentDir: string): AgentConfig {
     ollamaHost: json.ollama_host || process.env.OLLAMA_HOST || "http://localhost:11434",
 
     personality,
+    gifs: json.gifs ?? (process.env.GIFS !== "false"),
   };
 }
 

@@ -1,4 +1,4 @@
-export type MatchType = "debate" | "freeform" | "story";
+export type MatchType = "debate" | "freeform" | "story" | "random";
 export type Side = "A" | "B";
 
 export type MatchState = {
@@ -35,6 +35,7 @@ export type AgentConfig = {
 
   // Agent
   personality: string;
+  gifs: boolean;
 };
 
 export type GifResult = {
