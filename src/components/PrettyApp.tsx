@@ -76,22 +76,18 @@ function renderTurn(
     lines.push({ text: "", color: undefined });
   } else {
     // Chat bubble
-    const wrapped = wrapText(content, maxW - 4);
-    const bubbleW = Math.min(maxW, Math.max(...wrapped.map((l) => l.length)) + 4);
-    const top = `╭${"─".repeat(bubbleW - 2)}╮`;
-    const bot = `╰${"─".repeat(bubbleW - 2)}╯`;
+    const innerW = maxW - 4; // space inside │ ... │
+    const wrapped = wrapText(content, innerW);
+    const longestLine = Math.max(...wrapped.map((l) => l.length));
+    const contentW = Math.min(innerW, longestLine); // inner content width
     const align = isMe ? "right" : "left";
-    const pad = (s: string) => {
-      const inner = s.length;
-      return s + " ".repeat(Math.max(0, bubbleW - 2 - inner));
-    };
 
     lines.push({ text: ` ${agentName}`, color, dim: true, bold: true, align });
-    lines.push({ text: top, color, align });
+    lines.push({ text: `╭${"─".repeat(contentW + 2)}╮`, color, align });
     for (const l of wrapped) {
-      lines.push({ text: `│ ${pad(l)} │`, color, align });
+      lines.push({ text: `│ ${l}${" ".repeat(contentW - l.length)} │`, color, align });
     }
-    lines.push({ text: bot, color, align });
+    lines.push({ text: `╰${"─".repeat(contentW + 2)}╯`, color, align });
     lines.push({ text: "", color: undefined });
   }
 
