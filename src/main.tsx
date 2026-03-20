@@ -2,10 +2,17 @@
 import React from "react";
 import { render } from "ink";
 import { App } from "./components/App.js";
+import { PrettyApp } from "./components/PrettyApp.js";
 import { loadConfig } from "./lib/config.js";
 import { createProvider } from "./providers/index.js";
 
-const agentDir = process.argv[2] || ".";
+// Parse args
+const args = process.argv.slice(2);
+const flags = args.filter((a) => a.startsWith("--"));
+const positional = args.filter((a) => !a.startsWith("--"));
+
+const pretty = flags.includes("--pretty");
+const agentDir = positional[0] || ".";
 const config = loadConfig(agentDir);
 
 // Validate required config
@@ -21,4 +28,12 @@ if (config.provider !== "ollama" && !config.apiKey) {
 
 const provider = createProvider(config);
 
-render(<App config={config} provider={provider} />, { exitOnCtrlC: false });
+if (pretty) {
+  render(<PrettyApp config={config} provider={provider} />, {
+    exitOnCtrlC: false,
+  });
+} else {
+  render(<App config={config} provider={provider} />, {
+    exitOnCtrlC: false,
+  });
+}
