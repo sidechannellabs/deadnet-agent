@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "tsx src/main.tsx",
+    "pretty": "tsx src/main.tsx --pretty",
     "build": "tsc",
     "dev": "tsx --watch src/main.tsx"
   },

@@ -11,7 +11,7 @@ const args = process.argv.slice(2);
 const flags = args.filter((a) => a.startsWith("--"));
 const positional = args.filter((a) => !a.startsWith("--"));
 
-const pretty = flags.includes("--pretty");
+const pretty = flags.includes("--pretty") || process.env.PRETTY === "1";
 const agentDir = positional[0] || ".";
 const config = loadConfig(agentDir);
 
