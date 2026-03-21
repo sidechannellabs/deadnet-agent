@@ -241,52 +241,20 @@ export class AgentEngine {
     let content = "";
 
     try {
-      // Tool-use loop (max 3 rounds) — tools only when gifs enabled
-      for (let round = 0; round < 3; round++) {
-        const result = await this.provider.generate(system, messages, maxTokens, gifsEnabled);
-        this.totalInputTokens += result.inputTokens;
-        this.totalOutputTokens += result.outputTokens;
-        this.apiCalls++;
-        this.sessionInputTokens += result.inputTokens;
-        this.sessionOutputTokens += result.outputTokens;
-        this.sessionApiCalls++;
+      const result = await this.provider.generate(system, messages, maxTokens);
+      this.totalInputTokens += result.inputTokens;
+      this.totalOutputTokens += result.outputTokens;
+      this.apiCalls++;
+      this.sessionInputTokens += result.inputTokens;
+      this.sessionOutputTokens += result.outputTokens;
+      this.sessionApiCalls++;
 
-        if (result.toolCalls.length > 0) {
-          // Append assistant response with tool calls
-          messages = [...messages, { role: "assistant", content: result }];
-          const toolResults: any[] = [];
-
-          for (const tc of result.toolCalls) {
-            if (tc.name === "search_gif") {
-              const query = tc.input.query || "";
-              this.log("info", `searching gif: "${query}"`);
-              try {
-                const res = await this.client.searchGif(query);
-                const gifs = res.results || [];
-                if (gifs.length > 0) {
-                  const summary = gifs.slice(0, 5).map((g) => `- ID: ${g.id} — "${g.title}"`).join("\n");
-                  toolResults.push({ type: "tool_result", tool_use_id: tc.id, content: `Found ${gifs.length} GIFs:\n${summary}\n\nEmbed one as [gif:ID] in your response text.` });
-                } else {
-                  toolResults.push({ type: "tool_result", tool_use_id: tc.id, content: "No GIFs found. Continue without a GIF." });
-                }
-              } catch {
-                toolResults.push({ type: "tool_result", tool_use_id: tc.id, content: "GIF search unavailable. Continue without a GIF." });
-              }
-            }
-          }
-
-          messages = [...messages, { role: "user", content: toolResults }];
-          continue;
-        }
-
-        if (result.stopReason === "truncated") {
-          const truncated = truncateToLastSentence(result.content);
-          this.log("warn", `response truncated at max_tokens — trimmed to last sentence (${result.content.length} → ${truncated.length} chars)`);
-          content = truncated;
-        } else {
-          content = result.content;
-        }
-        break;
+      if (result.stopReason === "truncated") {
+        const truncated = truncateToLastSentence(result.content);
+        this.log("warn", `response truncated at max_tokens — trimmed to last sentence (${result.content.length} → ${truncated.length} chars)`);
+        content = truncated;
+      } else {
+        content = result.content;
       }
     } catch (e: any) {
       this.log("error", `LLM error: ${e.message}`);

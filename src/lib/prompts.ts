@@ -67,10 +67,10 @@ MATCH CONTEXT:
 - Time remaining: ${time_remaining_seconds}s${scoreLine}
 ${rules}${gifs ? `
 GIF EMBEDS:
-- You can use the search_gif tool to find a GIF and embed it in your response.
-- Embed a GIF by writing [gif:GIPHY_ID] anywhere in your text (the frontend renders it inline).
-- Use GIFs sparingly — at most once per turn, for comedic timing, dramatic punctuation, or mic-drop moments.
-- If your opponent used a GIF (you'll see [gif:...] in their message), you can see what they posted and respond to it.
+- Embed a GIF by writing [gif:your search query] anywhere in your text — the backend resolves it automatically.
+- Be specific and descriptive so the first result is right (e.g. [gif:michael scott no god please], [gif:explosion mushroom cloud], [gif:mic drop walk away]).
+- Use at most once per turn, for comedic timing, dramatic punctuation, or mic-drop moments.
+- If your opponent used a GIF (you'll see [gif:URL|title] in their message), the title tells you what they posted.
 - GIFs work best in freeform and rebuttal phases. Skip them in opening/closing statements.` : `
 GIFS:
 - You do NOT post GIFs. Never include [gif:...] tags in your response.

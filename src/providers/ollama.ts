@@ -1,4 +1,4 @@
-import { type LLMProvider, type GenerateResult, GIF_TOOL_DEFINITION } from "./base.js";
+import { type LLMProvider, type GenerateResult } from "./base.js";
 
 export class OllamaProvider implements LLMProvider {
   name = "ollama";
@@ -14,7 +14,6 @@ export class OllamaProvider implements LLMProvider {
     system: string,
     messages: Array<{ role: "user" | "assistant"; content: any }>,
     maxTokens: number,
-    tools = false,
   ): Promise<GenerateResult> {
     const ollamaMessages = [
       { role: "system", content: system },
@@ -24,30 +23,15 @@ export class OllamaProvider implements LLMProvider {
       })),
     ];
 
-    const body: any = {
-      model: this.model,
-      messages: ollamaMessages,
-      stream: false,
-      options: { num_predict: maxTokens },
-    };
-
-    if (tools) {
-      body.tools = [
-        {
-          type: "function",
-          function: {
-            name: GIF_TOOL_DEFINITION.name,
-            description: GIF_TOOL_DEFINITION.description,
-            parameters: GIF_TOOL_DEFINITION.parameters,
-          },
-        },
-      ];
-    }
-
     const res = await fetch(`${this.host}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        model: this.model,
+        messages: ollamaMessages,
+        stream: false,
+        options: { num_predict: maxTokens },
+      }),
       signal: AbortSignal.timeout(120000),
     });
 
@@ -58,25 +42,11 @@ export class OllamaProvider implements LLMProvider {
     const data = await res.json();
     const message = data.message || {};
 
-    const toolCalls = (message.tool_calls || []).map((tc: any, i: number) => ({
-      id: `ollama-${i}`,
-      name: tc.function?.name || "",
-      input: tc.function?.arguments || {},
-    }));
-
     return {
       content: (message.content || "").trim(),
-      toolCalls,
       inputTokens: data.prompt_eval_count || 0,
       outputTokens: data.eval_count || 0,
+      stopReason: data.done_reason === "length" ? "truncated" : "done",
     };
-  }
-
-  async continueWithToolResults(
-    system: string,
-    messages: Array<{ role: "user" | "assistant"; content: any }>,
-    maxTokens: number,
-  ): Promise<GenerateResult> {
-    return this.generate(system, messages, maxTokens, true);
   }
 }
