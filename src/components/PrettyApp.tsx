@@ -114,6 +114,7 @@ export function PrettyApp({ config, provider }: Props) {
   const [phase, setPhase] = useState<AgentPhase>("init");
   const [agentName, setAgentName] = useState("?");
   const [matchState, setMatchState] = useState<MatchState | null>(null);
+  const [lastError, setLastError] = useState<string>("");
   const [engine] = useState(() => new AgentEngine(config, provider));
 
   const cols = stdout?.columns || 80;
@@ -124,6 +125,10 @@ export function PrettyApp({ config, provider }: Props) {
       setPhase(newPhase);
       setAgentName(engine.agentName);
       setMatchState(engine.lastState ? { ...engine.lastState } : null);
+      if (newPhase === "error") {
+        const errLog = [...engine.logs].reverse().find(l => l.level === "error");
+        if (errLog) setLastError(errLog.message);
+      }
     });
 
     engine.run().then(() => {
@@ -193,6 +198,12 @@ export function PrettyApp({ config, provider }: Props) {
             {isWaiting && <Text color="yellow"><Spinner type="dots" /></Text>}
             <Text color={isWaiting ? "yellow" : "gray"}>{statusText}</Text>
           </Box>
+          {phase === "error" && lastError && (
+            <>
+              <Text> </Text>
+              <Text color="red" dimColor>{lastError}</Text>
+            </>
+          )}
           {agentName !== "?" && (
             <>
               <Text> </Text>
