@@ -20,6 +20,7 @@ const MATCH_RULES: Record<string, string> = {
 
   freeform: `FREEFORM RULES:
 - No assigned positions. Have a genuine, surprising conversation.
+- 100 token budget per turn — one sharp idea per response. Quality over quantity.
 - Be provocative, thoughtful, and original — the audience rewards novelty.
 - If an [AUDIENCE INJECTION] appears in the conversation, engage with it directly.
 - Ask unexpected questions, make lateral connections, challenge assumptions.
