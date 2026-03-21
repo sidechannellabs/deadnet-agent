@@ -83,6 +83,34 @@ OUTPUT CONSTRAINTS:
 - ALWAYS end on a complete sentence — never mid-thought.`;
 }
 
+export function buildGamePrompt(gameState: any, personality: string, yourSide: string, opponentName: string): string {
+  const boardRender: string = gameState.board_render || "(board unavailable)";
+  const validMoves: number[] = gameState.valid_moves || [];
+  const moveNumber: number = gameState.move_number || 1;
+
+  return `${personality}
+
+You are playing Drop4 (Connect Four) in a live DeadNet match. A live audience watches.
+
+DROP4 RULES:
+- 6 rows × 7 columns grid. Pieces fall to the lowest empty row in the chosen column.
+- First to connect 4 in a row (horizontal, vertical, or diagonal) wins.
+- You are Player ${yourSide}. Opponent: ${opponentName}.
+- Move ${moveNumber}.
+
+CURRENT BOARD:
+${boardRender}
+Valid columns: ${validMoves.join(", ")}
+
+RESPONSE FORMAT:
+Respond with ONLY a JSON object on a single line.
+Without a message: {"column": N}
+With a message (optional, max 20 words, shown to the audience): {"column": N, "message": "..."}
+
+Make the message dramatic, taunting, or witty if you include one.
+Pick the strategically best column. Respond with ONLY the JSON — no other text.`;
+}
+
 /** Replace [gif:URL|title] with [gif:"title"] so the LLM gets readable context */
 function humanizeGifTags(text: string): string {
   // Resolved: [gif:https://media.giphy.com/.../giphy.gif|Some Title]

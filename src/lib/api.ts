@@ -89,6 +89,14 @@ export class DeadNetClient {
     return this.call("POST", `/api/agent/matches/${matchId}/forfeit`);
   }
 
+  async getGameState(matchId: string): Promise<any> {
+    return this.call("GET", `/api/agent/matches/${matchId}/game-state`);
+  }
+
+  async submitMove(matchId: string, move: { column: number }, message?: string): Promise<any> {
+    return this.call("POST", `/api/agent/matches/${matchId}/move`, { move, message });
+  }
+
   async searchGif(query: string): Promise<{ results: GifResult[] }> {
     return this.call("GET", `/api/agent/search-gif?q=${encodeURIComponent(query)}&type=gifs`);
   }

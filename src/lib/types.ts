@@ -1,4 +1,4 @@
-export type MatchType = "debate" | "freeform" | "story" | "random";
+export type MatchType = "debate" | "freeform" | "story" | "game" | "random";
 export type Side = "A" | "B";
 
 export type MatchState = {
@@ -36,6 +36,13 @@ export type AgentConfig = {
   // Agent
   personality: string;
   gifs: boolean;
+
+  // Context window: max history entries per match type (undefined = full history)
+  contextWindow: {
+    debate: number;
+    freeform: number;
+    story: number | undefined;
+  };
 };
 
 export type GifResult = {

@@ -1,5 +1,5 @@
 import { DeadNetClient, APIError } from "./api.js";
-import { buildSystemPrompt, buildMessages } from "./prompts.js";
+import { buildSystemPrompt, buildMessages, buildGamePrompt } from "./prompts.js";
 import type { LLMProvider } from "../providers/base.js";
 import type { AgentConfig, AgentPhase, LogEntry, MatchState } from "./types.js";
 
@@ -209,14 +209,19 @@ export class AgentEngine {
       }
 
       if (state.current_turn === state.your_side) {
-        const phase = state.phase;
-        const phaseStr = phase ? ` [${phase.name.toUpperCase()}]` : "";
-        const posStr = state.your_position ? ` (${state.your_position})` : "";
-        this.log(
-          "info",
-          `turn ${state.turn_number}/${state.max_turns}${phaseStr}${posStr} vs ${state.opponent.name} — budget=${state.token_budget_this_turn}t, ${state.time_remaining_seconds}s left`,
-        );
-        await this.takeTurn(state);
+        if (state.match_type === "game") {
+          this.log("info", `move ${state.turn_number} vs ${state.opponent.name} — ${state.time_remaining_seconds}s left`);
+          await this.takeGameMove(state);
+        } else {
+          const phase = state.phase;
+          const phaseStr = phase ? ` [${phase.name.toUpperCase()}]` : "";
+          const posStr = state.your_position ? ` (${state.your_position})` : "";
+          this.log(
+            "info",
+            `turn ${state.turn_number}/${state.max_turns}${phaseStr}${posStr} vs ${state.opponent.name} — budget=${state.token_budget_this_turn}t, ${state.time_remaining_seconds}s left`,
+          );
+          await this.takeTurn(state);
+        }
       } else {
         this.emit("opponent_turn");
         await this.sleep(7000);
@@ -291,6 +296,71 @@ export class AgentEngine {
       }
     } catch (e: any) {
       this.log("error", `submit error: ${e.message}`);
+    }
+  }
+
+  private async takeGameMove(state: MatchState) {
+    this.emit("thinking");
+    this.log("info", "analyzing board...");
+
+    let gameState: any;
+    try {
+      gameState = await this.client.getGameState(this.matchId!);
+    } catch (e: any) {
+      this.log("error", `failed to get game state: ${e.message}`);
+      return;
+    }
+
+    const system = buildGamePrompt(gameState, this.config.personality, state.your_side, state.opponent.name);
+    const messages: Array<{ role: "user" | "assistant"; content: string }> = [
+      { role: "user", content: "Make your move." },
+    ];
+
+    let rawResponse = "";
+    try {
+      const result = await this.provider.generate(system, messages, 100);
+      this.totalInputTokens += result.inputTokens;
+      this.totalOutputTokens += result.outputTokens;
+      this.apiCalls++;
+      this.sessionInputTokens += result.inputTokens;
+      this.sessionOutputTokens += result.outputTokens;
+      this.sessionApiCalls++;
+      rawResponse = result.content.trim();
+    } catch (e: any) {
+      this.log("error", `LLM error: ${e.message}`);
+      return;
+    }
+
+    let column: number;
+    let message: string | undefined;
+    try {
+      const jsonMatch = rawResponse.match(/\{[^}]+\}/);
+      if (!jsonMatch) throw new Error("no JSON found");
+      const parsed = JSON.parse(jsonMatch[0]);
+      column = parseInt(parsed.column, 10);
+      if (isNaN(column) || column < 0 || column > 6) throw new Error(`invalid column: ${parsed.column}`);
+      if (parsed.message && typeof parsed.message === "string") {
+        message = parsed.message.slice(0, 280);
+      }
+    } catch (e: any) {
+      const validMoves: number[] = gameState.valid_moves?.length ? gameState.valid_moves : [0, 1, 2, 3, 4, 5, 6];
+      column = validMoves[Math.floor(Math.random() * validMoves.length)];
+      this.log("warn", `failed to parse move (${e.message}) — picking random column ${column}`);
+    }
+
+    this.emit("submitting");
+    this.log("info", `submitting move: column ${column!}${message ? ` — "${message}"` : ""}`);
+
+    try {
+      const resp = await this.client.submitMove(this.matchId!, { column: column! }, message);
+      if (resp.accepted !== false) {
+        this.log("info", `move accepted: column ${column!}`);
+        if (resp.winner) this.log("info", `game over — winner: ${resp.winner}`);
+      } else {
+        this.log("warn", `move rejected: ${resp.error || "unknown"}`);
+      }
+    } catch (e: any) {
+      this.log("error", `move submit error: ${e.message}`);
     }
   }
 
