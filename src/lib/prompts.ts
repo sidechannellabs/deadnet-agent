@@ -8,9 +8,9 @@ export const DEBATE_PHASE_PROMPTS: Record<string, string> = {
 
 const MATCH_RULES: Record<string, string> = {
   debate: `DEBATE RULES (Oxford Format — 3 phases, 10 turns):
-- OPENING (turns 1-2): One statement each. Set your thesis. 300 token budget.
-- REBUTTAL (turns 3-8): Three exchanges each. Attack, defend, counter. 150 token budget.
-- CLOSING (turns 9-10): One statement each. Summarize your case. 250 token budget.
+- OPENING (turns 1-2): One statement each. Set your thesis. 150 token budget.
+- REBUTTAL (turns 3-8): Three exchanges each. Attack, defend, counter. 100 token budget.
+- CLOSING (turns 9-10): One statement each. Summarize your case. 150 token budget.
 - You are assigned FOR or AGAINST. Argue with total conviction — NEVER concede or agree.
 - Address your opponent directly with "you" — talk TO them, not ABOUT them.
 - Use specific examples, analogies, data, historical precedent, and rhetorical devices.
@@ -42,11 +42,15 @@ export function buildSystemPrompt(state: MatchState, personality: string, gifs =
   const oppLine = `Opponent: ${opponent.name}${opponent.description ? ` — ${opponent.description}` : ""}`;
   const scoreLine = score ? `\nScore: You ${score[your_side]} — Opponent ${score[your_side === "A" ? "B" : "A"]}` : "";
 
+  const budget = state.token_budget_this_turn;
+
   let phaseLine = "";
-  let lengthConstraint = "Write 3-5 sentences.";
+  let lengthConstraint = `Write 3-5 sentences. Stay under ${budget} tokens.`;
   if (match_type === "debate" && phase) {
     phaseLine = `\n- Phase: ${phase.name.toUpperCase()} (turn ${phase.phase_turn}/${phase.phase_total_turns})`;
-    lengthConstraint = phase.name === "rebuttal" ? "Write exactly 3 sentences." : "Write exactly 5 sentences.";
+    lengthConstraint = phase.name === "rebuttal"
+      ? `Write exactly 3 concise sentences. Stay under ${budget} tokens.`
+      : `Write exactly 5 sentences. Stay under ${budget} tokens.`;
   }
 
   const rules = MATCH_RULES[match_type] || "";
@@ -86,7 +90,10 @@ function humanizeGifTags(text: string): string {
     .replace(/\[gif:([a-zA-Z0-9]+)\]/g, '[gif:$1]');
 }
 
-export function buildMessages(state: MatchState): Array<{ role: "user" | "assistant"; content: string }> {
+export function buildMessages(
+  state: MatchState,
+  options?: { contextWindow?: number },
+): Array<{ role: "user" | "assistant"; content: string }> {
   const { history, your_side, topic, match_type, your_position, phase } = state;
 
   if (!history || history.length === 0) {
@@ -98,8 +105,20 @@ export function buildMessages(state: MatchState): Array<{ role: "user" | "assist
     return [{ role: "user", content: `The conversation begins now. Topic: "${topic}". Make your opening remark.` }];
   }
 
+  // Trim history to the most recent N entries when a window is set.
+  // We still anchor the first user message so Claude always has match context.
+  const window = options?.contextWindow;
+  const trimmedHistory = window && history.length > window ? history.slice(-window) : history;
+  const isTrimmed = trimmedHistory !== history;
+
   const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
-  for (const turn of history) {
+
+  // When we've trimmed, inject a short anchor so the model knows what came before.
+  if (isTrimmed) {
+    messages.push({ role: "user", content: `The ${match_type} is underway. Topic: "${topic}". Earlier turns have been omitted — focus on what follows.` });
+  }
+
+  for (const turn of trimmedHistory) {
     let role: "user" | "assistant";
     let content = humanizeGifTags(turn.content);
 

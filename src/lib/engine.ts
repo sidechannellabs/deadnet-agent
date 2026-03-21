@@ -19,6 +19,27 @@ export class AgentEngine {
   totalOutputTokens = 0;
   apiCalls = 0;
 
+  // Session-level totals (never reset, accumulate across all matches)
+  sessionInputTokens = 0;
+  sessionOutputTokens = 0;
+  sessionApiCalls = 0;
+
+  get sessionCost(): number {
+    const model = this.config.model;
+    let inputPrice: number;
+    let outputPrice: number;
+    if (model.startsWith("claude-haiku-4")) {
+      inputPrice = 0.80;
+      outputPrice = 4.00;
+    } else if (model.startsWith("claude-sonnet-4")) {
+      inputPrice = 3.00;
+      outputPrice = 15.00;
+    } else {
+      return 0;
+    }
+    return (this.sessionInputTokens * inputPrice + this.sessionOutputTokens * outputPrice) / 1_000_000;
+  }
+
   private listeners: Listener[] = [];
   private running = false;
 
@@ -211,9 +232,11 @@ export class AgentEngine {
 
     const gifsEnabled = this.config.gifs;
     const system = buildSystemPrompt(state, this.config.personality, gifsEnabled);
-    let messages: Array<{ role: "user" | "assistant"; content: any }> = buildMessages(state);
-    const budget = state.token_budget_this_turn || 150;
-    const maxTokens = Math.max(300, budget * 2);
+    const cw = this.config.contextWindow;
+    const contextWindow = cw[state.match_type as keyof typeof cw] as number | undefined;
+    let messages: Array<{ role: "user" | "assistant"; content: any }> = buildMessages(state, { contextWindow });
+    const budget = state.token_budget_this_turn || 100;
+    const maxTokens = budget;
 
     let content = "";
 
@@ -224,6 +247,9 @@ export class AgentEngine {
         this.totalInputTokens += result.inputTokens;
         this.totalOutputTokens += result.outputTokens;
         this.apiCalls++;
+        this.sessionInputTokens += result.inputTokens;
+        this.sessionOutputTokens += result.outputTokens;
+        this.sessionApiCalls++;
 
         if (result.toolCalls.length > 0) {
           // Append assistant response with tool calls
@@ -253,7 +279,13 @@ export class AgentEngine {
           continue;
         }
 
-        content = result.content;
+        if (result.stopReason === "truncated") {
+          const truncated = truncateToLastSentence(result.content);
+          this.log("warn", `response truncated at max_tokens — trimmed to last sentence (${result.content.length} → ${truncated.length} chars)`);
+          content = truncated;
+        } else {
+          content = result.content;
+        }
         break;
       }
     } catch (e: any) {
@@ -275,7 +307,14 @@ export class AgentEngine {
     this.log("info", `submitting (${content.split(/\s+/).length} words)...`);
 
     try {
-      const resp = await this.client.submitTurn(this.matchId!, content);
+      let resp = await this.client.submitTurn(this.matchId!, content);
+
+      if (!resp.accepted && resp.error === "over_token_limit") {
+        const truncated = truncateToLastSentence(content);
+        this.log("warn", `over_token_limit — truncating to last sentence and retrying`);
+        resp = await this.client.submitTurn(this.matchId!, truncated);
+      }
+
       if (resp.accepted) {
         this.log("info", `turn ${resp.turn_number || "?"} accepted`);
         if (resp.match_ended) this.log("info", "match ended after this turn");
@@ -298,7 +337,8 @@ export class AgentEngine {
       this.log("info", `match ${this.matchId} — ${result} vs ${s.opponent.name} (${myScore}-${oppScore})`);
     }
 
-    this.log("info", `usage: ${this.apiCalls} calls, ${this.totalInputTokens} in / ${this.totalOutputTokens} out`);
+    this.log("info", `match usage: ${this.apiCalls} calls, ${this.totalInputTokens}in / ${this.totalOutputTokens}out`);
+    this.log("info", `session total: ${this.sessionApiCalls} calls, ${this.sessionInputTokens}in / ${this.sessionOutputTokens}out — $${this.sessionCost.toFixed(4)}`);
 
     this.matchId = null;
     this.lastState = null;
@@ -318,4 +358,10 @@ export class AgentEngine {
   private sleep(ms: number): Promise<void> {
     return new Promise((r) => setTimeout(r, ms));
   }
+}
+
+/** Truncate text to the last complete sentence ending in . ! or ? */
+function truncateToLastSentence(text: string): string {
+  const match = text.match(/^([\s\S]*[.!?])\s*[^.!?]*$/);
+  return match ? match[1].trim() : text.trim();
 }
