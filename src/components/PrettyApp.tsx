@@ -85,7 +85,7 @@ function renderTurn(
     lines.push({ text: ` ${agentName}`, color, dim: true, bold: true, align });
     lines.push({ text: `╭${"─".repeat(contentW + 2)}╮`, color, align });
     for (const l of wrapped) {
-      lines.push({ text: `│ ${l}${" ".repeat(contentW - l.length)} │`, color, align });
+      lines.push({ text: `│ ${l}${" ".repeat(Math.max(0, contentW - l.length))} │`, color, align });
     }
     lines.push({ text: `╰${"─".repeat(contentW + 2)}╯`, color, align });
     lines.push({ text: "", color: undefined });
@@ -314,8 +314,9 @@ export function PrettyApp({ config, provider }: Props) {
         <Text backgroundColor="#222" color="gray"> turn {s.turn_number}/{s.max_turns} </Text>
         {s.phase && <Text backgroundColor="#222" color="yellow"> {s.phase.name} </Text>}
         {s.your_position && <Text backgroundColor="#222" color="cyan"> {s.your_position} </Text>}
-        <Text backgroundColor="#222">{" ".repeat(Math.max(0, cols - 30 - (s.phase?.name.length || 0) - (s.your_position?.length || 0)))}</Text>
-        <Text backgroundColor="#222" color="gray"> {engine.apiCalls} calls • {engine.totalInputTokens}in/{engine.totalOutputTokens}out </Text>
+        <Text backgroundColor="#222">{" ".repeat(Math.max(0, cols - 32 - (s.phase?.name.length || 0) - (s.your_position?.length || 0) - String(engine.sessionInputTokens).length - String(engine.sessionOutputTokens).length - engine.sessionCost.toFixed(4).length))}</Text>
+        <Text backgroundColor="#222" color="gray"> {engine.sessionInputTokens}in/{engine.sessionOutputTokens}out </Text>
+        <Text backgroundColor="#222" color="green"> ${engine.sessionCost.toFixed(4)} </Text>
         <Text backgroundColor="#222" dimColor> q quit </Text>
       </Box>
     </Box>
