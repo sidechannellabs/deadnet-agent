@@ -1,3 +1,4 @@
+import { appendFileSync, writeFileSync } from "fs";
 import { DeadNetClient, APIError } from "./api.js";
 import { buildSystemPrompt, buildMessages, buildGamePrompt } from "./prompts.js";
 import type { LLMProvider } from "../providers/base.js";
@@ -47,6 +48,7 @@ export class AgentEngine {
     this.config = config;
     this.client = new DeadNetClient(config.deadnetApi, config.deadnetToken);
     this.provider = provider;
+    if (config.debug) writeFileSync("debug.log", `=== debug session ${new Date().toISOString()} ===\n`);
   }
 
   on(listener: Listener) {
@@ -70,6 +72,17 @@ export class AgentEngine {
     this.logs.push(entry);
     if (this.logs.length > 200) this.logs.shift();
     this.emit(this.phase, entry);
+  }
+
+  private debug(label: string, data: unknown) {
+    if (!this.config.debug) return;
+    // Write full formatted block to debug.log (tail -f debug.log to follow)
+    appendFileSync("debug.log", formatDebugBlock(label, data) + "\n");
+    // Short summary in the TUI log
+    const preview = typeof data === "string"
+      ? data.slice(0, 100).replace(/\n/g, "↵")
+      : JSON.stringify(data).slice(0, 100);
+    this.log("debug", `[${label}] ${preview}`);
   }
 
   async run() {
@@ -243,6 +256,8 @@ export class AgentEngine {
     const budget = state.token_budget_this_turn || 100;
     const maxTokens = budget;
 
+    this.debug("llm-request", { system, messages });
+
     let content = "";
 
     try {
@@ -253,6 +268,8 @@ export class AgentEngine {
       this.sessionInputTokens += result.inputTokens;
       this.sessionOutputTokens += result.outputTokens;
       this.sessionApiCalls++;
+
+      this.debug("llm-response", { content: result.content, stopReason: result.stopReason, inputTokens: result.inputTokens, outputTokens: result.outputTokens });
 
       if (result.stopReason === "truncated") {
         const truncated = truncateToLastSentence(result.content);
@@ -311,10 +328,31 @@ export class AgentEngine {
       return;
     }
 
+    this.debug("game-state", {
+      your_turn: gameState.your_turn,
+      valid_moves: gameState.valid_moves,
+      board_render: gameState.board_render,
+    });
+
+    const rawValidMoves = gameState.valid_moves;
+    const isCTF = rawValidMoves && !Array.isArray(rawValidMoves) && typeof rawValidMoves === "object";
+    const validMoves: any[] = Array.isArray(rawValidMoves) ? rawValidMoves : [];
+    const hasMoves = isCTF
+      ? Object.keys(rawValidMoves).length > 0
+      : validMoves.length > 0;
+
+    if (!gameState.your_turn || !hasMoves) {
+      this.log("info", `waiting — your_turn=${gameState.your_turn}, valid_moves=${isCTF ? JSON.stringify(Object.keys(rawValidMoves)) : validMoves.length}`);
+      await this.sleep(3000);
+      return;
+    }
+
     const system = buildGamePrompt(gameState, this.config.personality, state.your_side, state.opponent.name);
     const messages: Array<{ role: "user" | "assistant"; content: string }> = [
       { role: "user", content: "Make your move." },
     ];
+
+    this.debug("llm-request", { system, messages });
 
     let rawResponse = "";
     try {
@@ -331,33 +369,74 @@ export class AgentEngine {
       return;
     }
 
-    let column: number;
+    this.debug("llm-response", rawResponse);
+
+    let move: any;
     let message: string | undefined;
-    try {
-      const jsonMatch = rawResponse.match(/\{[^}]+\}/);
-      if (!jsonMatch) throw new Error("no JSON found");
-      const parsed = JSON.parse(jsonMatch[0]);
-      column = parseInt(parsed.column, 10);
-      if (isNaN(column) || column < 0 || column > 6) throw new Error(`invalid column: ${parsed.column}`);
-      if (parsed.message && typeof parsed.message === "string") {
-        message = parsed.message.slice(0, 280);
+    if (isCTF) {
+      try {
+        const jsonMatch = rawResponse.match(/\{[^}]+\}/);
+        if (!jsonMatch) throw new Error("no JSON found");
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (!parsed.commands || typeof parsed.commands !== "string") throw new Error("missing commands field");
+        move = { commands: parsed.commands };
+        if (parsed.message && typeof parsed.message === "string") {
+          message = parsed.message.slice(0, 280);
+        }
+      } catch (e: any) {
+        // Fallback: pick a random command per unit
+        const unitMoves = rawValidMoves as Record<string, any>;
+        let cmds = "";
+        for (const [label, opts] of Object.entries(unitMoves)) {
+          if (Array.isArray(opts) && opts.length > 0) {
+            cmds += label + (opts as string[])[Math.floor(Math.random() * opts.length)];
+          }
+        }
+        move = { commands: cmds };
+        this.log("warn", `failed to parse CTF move (${e.message}) — random fallback: ${cmds}`);
       }
-    } catch (e: any) {
-      const validMoves: number[] = gameState.valid_moves?.length ? gameState.valid_moves : [0, 1, 2, 3, 4, 5, 6];
-      column = validMoves[Math.floor(Math.random() * validMoves.length)];
-      this.log("warn", `failed to parse move (${e.message}) — picking random column ${column}`);
+    } else {
+      try {
+        const jsonMatch = rawResponse.match(/\{[^}]+\}/);
+        if (!jsonMatch) throw new Error("no JSON found");
+        const parsed = JSON.parse(jsonMatch[0]);
+        const idx = parseInt(parsed.move, 10) - 1;
+        if (isNaN(idx) || idx < 0 || idx >= validMoves.length) throw new Error(`invalid move index: ${parsed.move}`);
+        move = validMoves[idx];
+        if (parsed.message && typeof parsed.message === "string") {
+          message = parsed.message.slice(0, 280);
+        }
+      } catch (e: any) {
+        move = validMoves[Math.floor(Math.random() * validMoves.length)];
+        this.log("warn", `failed to parse move (${e.message}) — picking random: ${JSON.stringify(move)}`);
+      }
     }
 
     this.emit("submitting");
-    this.log("info", `submitting move: column ${column!}${message ? ` — "${message}"` : ""}`);
+    this.log("info", `submitting move: ${JSON.stringify(move)}${message ? ` — "${message}"` : ""}`);
 
     try {
-      const resp = await this.client.submitMove(this.matchId!, { column: column! }, message);
+      const resp = await this.client.submitMove(this.matchId!, move, message);
       if (resp.accepted !== false) {
-        this.log("info", `move accepted: column ${column!}`);
+        this.log("info", `move accepted: ${JSON.stringify(move)}`);
         if (resp.winner) this.log("info", `game over — winner: ${resp.winner}`);
       } else {
-        this.log("warn", `move rejected: ${resp.error || "unknown"}`);
+        const err = resp.error || "unknown";
+        if (err === "duplicate_move") {
+          this.log("info", "move already submitted — polling until turn advances...");
+          while (this.running) {
+            await this.sleep(3000);
+            try {
+              const gs = await this.client.getGameState(this.matchId!);
+              this.debug("duplicate-poll", { your_turn: gs.your_turn });
+              if (!gs.your_turn) break;
+            } catch {
+              break;
+            }
+          }
+        } else {
+          this.log("warn", `move rejected: ${err}`);
+        }
       }
     } catch (e: any) {
       this.log("error", `move submit error: ${e.message}`);
@@ -402,4 +481,19 @@ export class AgentEngine {
 function truncateToLastSentence(text: string): string {
   const match = text.match(/^([\s\S]*[.!?])\s*[^.!?]*$/);
   return match ? match[1].trim() : text.trim();
+}
+
+/** Format a labelled debug block for stderr output. */
+function formatDebugBlock(label: string, data: unknown): string {
+  const bar = "─".repeat(60);
+  const header = `\n┌ ${label} ${"─".repeat(Math.max(0, 58 - label.length))}┐`;
+  const footer = `└${bar}┘`;
+  let body: string;
+  if (typeof data === "string") {
+    body = data;
+  } else {
+    body = JSON.stringify(data, null, 2);
+  }
+  const lines = body.split("\n").map((l) => `│ ${l}`).join("\n");
+  return `${header}\n${lines}\n${footer}`;
 }

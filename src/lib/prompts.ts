@@ -85,30 +85,72 @@ OUTPUT CONSTRAINTS:
 
 export function buildGamePrompt(gameState: any, personality: string, yourSide: string, opponentName: string): string {
   const boardRender: string = gameState.board_render || "(board unavailable)";
-  const validMoves: number[] = gameState.valid_moves || [];
+  const rawValidMoves = gameState.valid_moves;
   const moveNumber: number = gameState.move_number || 1;
+  const gameName: string = gameState.game_name || "a strategy game";
+  const gameRules: string = gameState.rules || "";
+
+  // CTF returns valid_moves as {"U1": [...], "U2": [...]} instead of a flat array
+  const isCTF = rawValidMoves && !Array.isArray(rawValidMoves) && typeof rawValidMoves === "object";
+
+  if (isCTF) {
+    const unitMoves = rawValidMoves as Record<string, any>;
+    const unitLines = Object.entries(unitMoves)
+      .map(([label, v]) => {
+        if (v && (v as any).snared) return `${label}: (snared — will skip this turn)`;
+        if (Array.isArray(v) && v.length > 0) return `${label}: ${(v as string[]).join(", ")}`;
+        return null;
+      })
+      .filter(Boolean)
+      .join("\n");
+
+    return `${personality}
+
+You are playing ${gameName} in a live DeadNet match. A live audience watches.
+You are Player ${yourSide}. Opponent: ${opponentName}. Turn ${moveNumber}.
+${gameRules ? `\nRULES:\n${gameRules}\n` : ""}
+CURRENT BOARD:
+${boardRender}
+
+VALID COMMANDS PER UNIT (each unit can do one action this turn):
+${unitLines}
+
+Each command is 3 chars: SquareAction (e.g. B2M = move to B2, D4A = attack D4).
+Prefix with unit label to form the full command string: U1B2M, U2D4A, etc.
+Combine all your unit commands into a single string: e.g. "U1B2MU2D4A".
+Snared units are automatically skipped — omit them from your commands string.
+
+RESPONSE FORMAT:
+Respond with ONLY a JSON object on a single line:
+{"commands": "U1...U2...", "message": "..."}
+
+The message is REQUIRED (max 20 words) — make it dramatic, taunting, or witty. The audience sees it.
+Pick the best tactical commands. Respond with ONLY the JSON — no other text.`;
+  }
+
+  const validMoves: any[] = Array.isArray(rawValidMoves) ? rawValidMoves : [];
+  const moveList = validMoves
+    .map((m, i) => `${i + 1}. ${JSON.stringify(m)}`)
+    .join("\n");
 
   return `${personality}
 
-You are playing Drop4 (Connect Four) in a live DeadNet match. A live audience watches.
-
-DROP4 RULES:
-- 6 rows × 7 columns grid. Pieces fall to the lowest empty row in the chosen column.
-- First to connect 4 in a row (horizontal, vertical, or diagonal) wins.
-- You are Player ${yourSide}. Opponent: ${opponentName}.
-- Move ${moveNumber}.
-
+You are playing ${gameName} in a live DeadNet match. A live audience watches.
+You are Player ${yourSide}. Opponent: ${opponentName}. Move ${moveNumber}.
+${gameRules ? `\nRULES:\n${gameRules}\n` : ""}
 CURRENT BOARD:
 ${boardRender}
-Valid columns: ${validMoves.join(", ")}
+
+VALID MOVES:
+${moveList}
 
 RESPONSE FORMAT:
-Respond with ONLY a JSON object on a single line.
-Without a message: {"column": N}
-With a message (optional, max 20 words, shown to the audience): {"column": N, "message": "..."}
+Respond with ONLY a JSON object on a single line:
+{"move": N, "message": "..."}
 
-Make the message dramatic, taunting, or witty if you include one.
-Pick the strategically best column. Respond with ONLY the JSON — no other text.`;
+N is the number of your chosen move from the list above.
+The message is REQUIRED (max 20 words) — make it dramatic, taunting, or witty. The audience sees it.
+Pick the strategically best move. Respond with ONLY the JSON — no other text.`;
 }
 
 /** Replace [gif:URL|title] with [gif:"title"] so the LLM gets readable context */
