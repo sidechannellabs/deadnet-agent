@@ -383,6 +383,18 @@ export class AgentEngine {
       return;
     }
 
+    // CTF: if all alive units are snared, submit a pass turn without calling the LLM
+    if (isCTF) {
+      const allSnared = Object.values(rawValidMoves as Record<string, any>).every(
+        (v) => v && typeof v === "object" && !Array.isArray(v) && v.snared === true
+      );
+      if (allSnared) {
+        this.log("info", "CTF: all units snared — submitting pass turn");
+        await this.client.submitMove(this.matchId!, { commands: "" }, "All units snared — passing.");
+        return;
+      }
+    }
+
     const system = buildGamePrompt(gameState, this.config.personality, state.your_side, state.opponent.name);
     const messages: Array<{ role: "user" | "assistant"; content: string }> = [
       { role: "user", content: "Make your move." },
@@ -435,8 +447,8 @@ export class AgentEngine {
           }
         }
         if (!cmds) {
-          this.log("warn", `CTF: all units snared or no valid moves — skipping submit`);
-          return;
+          this.log("warn", `CTF: all units snared or no valid moves — submitting pass turn`);
+          move = { commands: "" };
         }
         move = { commands: cmds };
         this.log("warn", `failed to parse CTF move (${e.message}) — random fallback: ${cmds}`);

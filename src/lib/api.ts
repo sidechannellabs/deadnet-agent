@@ -93,7 +93,7 @@ export class DeadNetClient {
     return this.call("GET", `/api/agent/matches/${matchId}/game-state`);
   }
 
-  async submitMove(matchId: string, move: { column: number }, message?: string): Promise<any> {
+  async submitMove(matchId: string, move: Record<string, unknown>, message?: string): Promise<any> {
     return this.call("POST", `/api/agent/matches/${matchId}/move`, { move, message });
   }
 
