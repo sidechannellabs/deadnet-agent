@@ -10,6 +10,7 @@ export class AgentEngine {
   config: AgentConfig;
   client: DeadNetClient;
   provider: LLMProvider;
+  gameProvider: LLMProvider;
 
   agentName = "?";
   matchId: string | null = null;
@@ -18,37 +19,59 @@ export class AgentEngine {
   logs: LogEntry[] = [];
   totalInputTokens = 0;
   totalOutputTokens = 0;
+  totalCacheReadTokens = 0;
+  totalCacheWriteTokens = 0;
   apiCalls = 0;
 
   // Session-level totals (never reset, accumulate across all matches)
   sessionInputTokens = 0;
   sessionOutputTokens = 0;
+  sessionCacheReadTokens = 0;
+  sessionCacheWriteTokens = 0;
   sessionApiCalls = 0;
+  // Game-move tokens tracked separately so they're priced at gameModel rates
+  sessionGameInputTokens = 0;
+  sessionGameOutputTokens = 0;
+  sessionGameCacheReadTokens = 0;
+  sessionGameCacheWriteTokens = 0;
 
   get sessionCost(): number {
-    const model = this.config.model;
-    let inputPrice: number;
-    let outputPrice: number;
+    return this._modelCost(this.config.model,
+      this.sessionInputTokens - this.sessionGameInputTokens,
+      this.sessionOutputTokens - this.sessionGameOutputTokens,
+      this.sessionCacheReadTokens - this.sessionGameCacheReadTokens,
+      this.sessionCacheWriteTokens - this.sessionGameCacheWriteTokens,
+    ) + this._modelCost(this.config.gameModel,
+      this.sessionGameInputTokens,
+      this.sessionGameOutputTokens,
+      this.sessionGameCacheReadTokens,
+      this.sessionGameCacheWriteTokens,
+    );
+  }
+
+  private _modelCost(model: string, input: number, output: number, cacheRead: number, cacheWrite: number): number {
+    let inputPrice: number, outputPrice: number, cacheWritePrice: number, cacheReadPrice: number;
     if (model.startsWith("claude-haiku-4")) {
-      inputPrice = 0.80;
-      outputPrice = 4.00;
+      inputPrice = 0.80; outputPrice = 4.00; cacheWritePrice = 1.00; cacheReadPrice = 0.08;
     } else if (model.startsWith("claude-sonnet-4")) {
-      inputPrice = 3.00;
-      outputPrice = 15.00;
+      inputPrice = 3.00; outputPrice = 15.00; cacheWritePrice = 3.75; cacheReadPrice = 0.30;
     } else {
       return 0;
     }
-    return (this.sessionInputTokens * inputPrice + this.sessionOutputTokens * outputPrice) / 1_000_000;
+    const uncached = input - cacheRead - cacheWrite;
+    return (uncached * inputPrice + output * outputPrice + cacheWrite * cacheWritePrice + cacheRead * cacheReadPrice) / 1_000_000;
   }
 
   private listeners: Listener[] = [];
   private running = false;
 
-  constructor(config: AgentConfig, provider: LLMProvider) {
+  constructor(config: AgentConfig, provider: LLMProvider, gameProvider?: LLMProvider) {
     this.config = config;
     this.client = new DeadNetClient(config.deadnetApi, config.deadnetToken);
     this.provider = provider;
+    this.gameProvider = gameProvider ?? provider;
     if (config.debug) writeFileSync("debug.log", `=== debug session ${new Date().toISOString()} ===\n`);
+    writeFileSync("error.log", `=== session ${new Date().toISOString()} ===\n`);
   }
 
   on(listener: Listener) {
@@ -72,6 +95,10 @@ export class AgentEngine {
     this.logs.push(entry);
     if (this.logs.length > 200) this.logs.shift();
     this.emit(this.phase, entry);
+    if (level === "error" || level === "warn") {
+      const line = `[${new Date().toISOString()}] [${level.toUpperCase()}] ${message}\n`;
+      appendFileSync("error.log", line);
+    }
   }
 
   private debug(label: string, data: unknown) {
@@ -169,6 +196,11 @@ export class AgentEngine {
         }
         if (e.error === "already_in_queue") {
           this.log("info", "already in queue — waiting...");
+        } else if (e.error === "queue_cooldown") {
+          const wait = (e.data?.retry_after ?? 30) as number;
+          this.log("info", `queue cooldown — retrying in ${wait}s...`);
+          await this.sleep(wait * 1000);
+          return; // re-enter run() loop → calls queue() again → retries joinQueue()
         } else {
           throw e;
         }
@@ -264,12 +296,16 @@ export class AgentEngine {
       const result = await this.provider.generate(system, messages, maxTokens);
       this.totalInputTokens += result.inputTokens;
       this.totalOutputTokens += result.outputTokens;
+      this.totalCacheReadTokens += result.cacheReadTokens;
+      this.totalCacheWriteTokens += result.cacheWriteTokens;
       this.apiCalls++;
       this.sessionInputTokens += result.inputTokens;
       this.sessionOutputTokens += result.outputTokens;
+      this.sessionCacheReadTokens += result.cacheReadTokens;
+      this.sessionCacheWriteTokens += result.cacheWriteTokens;
       this.sessionApiCalls++;
 
-      this.debug("llm-response", { content: result.content, stopReason: result.stopReason, inputTokens: result.inputTokens, outputTokens: result.outputTokens });
+      this.debug("llm-response", { content: result.content, stopReason: result.stopReason, inputTokens: result.inputTokens, outputTokens: result.outputTokens, cacheRead: result.cacheReadTokens, cacheWrite: result.cacheWriteTokens });
 
       if (result.stopReason === "truncated") {
         const truncated = truncateToLastSentence(result.content);
@@ -356,12 +392,20 @@ export class AgentEngine {
 
     let rawResponse = "";
     try {
-      const result = await this.provider.generate(system, messages, 100);
+      const result = await this.gameProvider.generate(system, messages, 100);
       this.totalInputTokens += result.inputTokens;
       this.totalOutputTokens += result.outputTokens;
+      this.totalCacheReadTokens += result.cacheReadTokens;
+      this.totalCacheWriteTokens += result.cacheWriteTokens;
       this.apiCalls++;
       this.sessionInputTokens += result.inputTokens;
       this.sessionOutputTokens += result.outputTokens;
+      this.sessionCacheReadTokens += result.cacheReadTokens;
+      this.sessionCacheWriteTokens += result.cacheWriteTokens;
+      this.sessionGameInputTokens += result.inputTokens;
+      this.sessionGameOutputTokens += result.outputTokens;
+      this.sessionGameCacheReadTokens += result.cacheReadTokens;
+      this.sessionGameCacheWriteTokens += result.cacheWriteTokens;
       this.sessionApiCalls++;
       rawResponse = result.content.trim();
     } catch (e: any) {
@@ -375,14 +419,12 @@ export class AgentEngine {
     let message: string | undefined;
     if (isCTF) {
       try {
-        const jsonMatch = rawResponse.match(/\{[^}]+\}/);
-        if (!jsonMatch) throw new Error("no JSON found");
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (!parsed.commands || typeof parsed.commands !== "string") throw new Error("missing commands field");
-        move = { commands: parsed.commands };
-        if (parsed.message && typeof parsed.message === "string") {
-          message = parsed.message.slice(0, 280);
-        }
+        // Direct field extraction — more robust than full JSON parse
+        const cmdMatch = rawResponse.match(/"commands"\s*:\s*"([^"]+)"/);
+        if (!cmdMatch) throw new Error("missing commands field");
+        move = { commands: cmdMatch[1] };
+        const msgMatch = rawResponse.match(/"message"\s*:\s*"([^"]+)"/);
+        if (msgMatch) message = msgMatch[1].slice(0, 280);
       } catch (e: any) {
         // Fallback: pick a random command per unit
         const unitMoves = rawValidMoves as Record<string, any>;
@@ -391,6 +433,10 @@ export class AgentEngine {
           if (Array.isArray(opts) && opts.length > 0) {
             cmds += label + (opts as string[])[Math.floor(Math.random() * opts.length)];
           }
+        }
+        if (!cmds) {
+          this.log("warn", `CTF: all units snared or no valid moves — skipping submit`);
+          return;
         }
         move = { commands: cmds };
         this.log("warn", `failed to parse CTF move (${e.message}) — random fallback: ${cmds}`);
@@ -410,6 +456,11 @@ export class AgentEngine {
         move = validMoves[Math.floor(Math.random() * validMoves.length)];
         this.log("warn", `failed to parse move (${e.message}) — picking random: ${JSON.stringify(move)}`);
       }
+    }
+
+    // Coerce amount to integer — backend uses json.dumps(default=str) so Decimal arrives as "100" (string)
+    if (move && move.amount !== undefined) {
+      move = { ...move, amount: Math.round(Number(move.amount)) };
     }
 
     this.emit("submitting");
@@ -435,7 +486,34 @@ export class AgentEngine {
             }
           }
         } else {
-          this.log("warn", `move rejected: ${err}`);
+          this.log("warn", `move rejected: ${err} — retrying with safe fallback`);
+          let fallbackMove: any = undefined;
+          if (isCTF) {
+            let fbCmds = "";
+            for (const [label, opts] of Object.entries(rawValidMoves as Record<string, any>)) {
+              if (Array.isArray(opts) && opts.length > 0) {
+                fbCmds += label + (opts as string[])[Math.floor(Math.random() * opts.length)];
+              }
+            }
+            if (fbCmds) fallbackMove = { commands: fbCmds };
+          } else {
+            fallbackMove = validMoves.find((m: any) => m.action === "call" || m.action === "check")
+              ?? validMoves.find((m: any) => m.action === "fold")
+              ?? validMoves[0];
+          }
+          if (fallbackMove) {
+            try {
+              const fb = await this.client.submitMove(this.matchId!, fallbackMove);
+              if (fb.accepted !== false) {
+                this.log("info", `fallback move accepted: ${JSON.stringify(fallbackMove)}`);
+                if (fb.winner) this.log("info", `game over — winner: ${fb.winner}`);
+              } else {
+                this.log("warn", `fallback also rejected: ${fb.error}`);
+              }
+            } catch (fe: any) {
+              this.log("error", `fallback submit error: ${fe.message}`);
+            }
+          }
         }
       }
     } catch (e: any) {
@@ -454,7 +532,10 @@ export class AgentEngine {
       this.log("info", `match ${this.matchId} — ${result} vs ${s.opponent.name} (${myScore}-${oppScore})`);
     }
 
-    this.log("info", `match usage: ${this.apiCalls} calls, ${this.totalInputTokens}in / ${this.totalOutputTokens}out`);
+    const cacheInfo = this.totalCacheReadTokens > 0
+      ? `, ${this.totalCacheReadTokens} cache_read / ${this.totalCacheWriteTokens} cache_write`
+      : "";
+    this.log("info", `match usage: ${this.apiCalls} calls, ${this.totalInputTokens}in / ${this.totalOutputTokens}out${cacheInfo}`);
     this.log("info", `session total: ${this.sessionApiCalls} calls, ${this.sessionInputTokens}in / ${this.sessionOutputTokens}out — $${this.sessionCost.toFixed(4)}`);
 
     this.matchId = null;
@@ -469,6 +550,8 @@ export class AgentEngine {
   private resetUsage() {
     this.totalInputTokens = 0;
     this.totalOutputTokens = 0;
+    this.totalCacheReadTokens = 0;
+    this.totalCacheWriteTokens = 0;
     this.apiCalls = 0;
   }
 
