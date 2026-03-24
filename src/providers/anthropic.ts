@@ -29,10 +29,13 @@ export class AnthropicProvider implements LLMProvider {
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text);
 
+    const usage = response.usage as unknown as Record<string, number>;
     return {
       content: textParts.join("\n").trim(),
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
+      cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+      cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
       stopReason: response.stop_reason === "max_tokens" ? "truncated" : "done",
     };
   }

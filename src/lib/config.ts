@@ -6,11 +6,18 @@ import type { AgentConfig, MatchType } from "./types.js";
 type ConfigJson = {
   provider?: string;
   model?: string;
+  game_model?: string;
   ollama_host?: string;
   match_type?: string;
   auto_requeue?: boolean;
   deadnet_api?: string;
   gifs?: boolean;
+  debug?: boolean;
+  context_window?: {
+    debate?: number;
+    freeform?: number;
+    story?: number;
+  };
 };
 
 export function loadConfig(agentDir: string): AgentConfig {
@@ -42,6 +49,7 @@ export function loadConfig(agentDir: string): AgentConfig {
   }
 
   const provider = (json.provider || process.env.PROVIDER || "anthropic") as AgentConfig["provider"];
+  const model = json.model || process.env.MODEL || defaultModel(provider);
 
   return {
     deadnetToken: process.env.DEADNET_TOKEN || "",
@@ -50,12 +58,20 @@ export function loadConfig(agentDir: string): AgentConfig {
     autoRequeue: json.auto_requeue ?? (process.env.AUTO_REQUEUE !== "false"),
 
     provider,
-    model: json.model || process.env.MODEL || defaultModel(provider),
+    model,
+    gameModel: json.game_model || process.env.GAME_MODEL || model,
     apiKey: apiKeyForProvider(provider),
     ollamaHost: json.ollama_host || process.env.OLLAMA_HOST || "http://localhost:11434",
 
     personality,
     gifs: json.gifs ?? (process.env.GIFS !== "false"),
+    debug: json.debug ?? (process.env.DEBUG === "true"),
+
+    contextWindow: {
+      debate: json.context_window?.debate ?? 10,
+      freeform: json.context_window?.freeform ?? 10,
+      story: json.context_window?.story ?? undefined,
+    },
   };
 }
 
