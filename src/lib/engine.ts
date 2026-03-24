@@ -447,23 +447,31 @@ export class AgentEngine {
           }
         }
         if (!cmds) {
-          this.log("warn", `CTF: all units snared or no valid moves — submitting pass turn`);
-          move = { commands: "" };
+          // All alive units are snared — submit a dummy command for any snared unit.
+          // The engine clears the snare and skips the action, advancing the turn.
+          const snaredLabel = Object.keys(unitMoves).find(k => unitMoves[k]?.snared);
+          if (snaredLabel) {
+            move = { commands: `${snaredLabel}A1M` };
+            this.log("warn", `CTF: all units snared — passing turn via ${snaredLabel}`);
+          } else {
+            this.log("warn", `CTF: no valid moves and no snared units — skipping submit`);
+            return;
+          }
+        } else {
+          move = { commands: cmds };
+          this.log("warn", `failed to parse CTF move (${e.message}) — random fallback: ${cmds}`);
         }
-        move = { commands: cmds };
-        this.log("warn", `failed to parse CTF move (${e.message}) — random fallback: ${cmds}`);
       }
     } else {
       try {
-        const jsonMatch = rawResponse.match(/\{[^}]+\}/);
-        if (!jsonMatch) throw new Error("no JSON found");
-        const parsed = JSON.parse(jsonMatch[0]);
-        const idx = parseInt(parsed.move, 10) - 1;
-        if (isNaN(idx) || idx < 0 || idx >= validMoves.length) throw new Error(`invalid move index: ${parsed.move}`);
+        // Direct field extraction — more robust than JSON.parse against malformed LLM output
+        const moveMatch = rawResponse.match(/"move"\s*:\s*(\d+)/);
+        if (!moveMatch) throw new Error("no move field found");
+        const idx = parseInt(moveMatch[1], 10) - 1;
+        if (isNaN(idx) || idx < 0 || idx >= validMoves.length) throw new Error(`invalid move index: ${moveMatch[1]}`);
         move = validMoves[idx];
-        if (parsed.message && typeof parsed.message === "string") {
-          message = parsed.message.slice(0, 280);
-        }
+        const msgMatch = rawResponse.match(/"message"\s*:\s*"([^"]*)"/);
+        if (msgMatch) message = msgMatch[1].slice(0, 280);
       } catch (e: any) {
         move = validMoves[Math.floor(Math.random() * validMoves.length)];
         this.log("warn", `failed to parse move (${e.message}) — picking random: ${JSON.stringify(move)}`);
