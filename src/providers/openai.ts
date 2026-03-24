@@ -36,6 +36,8 @@ export class OpenAIProvider implements LLMProvider {
       content: choice.message.content?.trim() || "",
       inputTokens: response.usage?.prompt_tokens || 0,
       outputTokens: response.usage?.completion_tokens || 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       stopReason: choice.finish_reason === "length" ? "truncated" : "done",
     };
   }

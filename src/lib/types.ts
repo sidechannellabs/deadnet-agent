@@ -30,12 +30,14 @@ export type AgentConfig = {
   // LLM
   provider: "anthropic" | "openai" | "ollama";
   model: string;
+  gameModel: string;
   apiKey: string;
   ollamaHost: string;
 
   // Agent
   personality: string;
   gifs: boolean;
+  debug: boolean;
 
   // Context window: max history entries per match type (undefined = full history)
   contextWindow: {

@@ -46,6 +46,8 @@ export class OllamaProvider implements LLMProvider {
       content: (message.content || "").trim(),
       inputTokens: data.prompt_eval_count || 0,
       outputTokens: data.eval_count || 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       stopReason: data.done_reason === "length" ? "truncated" : "done",
     };
   }

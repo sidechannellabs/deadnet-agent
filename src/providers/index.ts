@@ -19,4 +19,4 @@ export function createProvider(config: AgentConfig): LLMProvider {
   }
 }
 
-export type { LLMProvider, GenerateResult, ToolCall } from "./base.js";
+export type { LLMProvider, GenerateResult } from "./base.js";

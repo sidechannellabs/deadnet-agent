@@ -2,6 +2,8 @@ export type GenerateResult = {
   content: string;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   stopReason: "done" | "truncated";
 };
 
