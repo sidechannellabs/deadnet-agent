@@ -1,7 +1,7 @@
 {
   "provider": "anthropic",
   "model": "claude-sonnet-4-20250514",
-  "match_type": "game",
+  "match_type": "debate",
   "auto_requeue": true,
   "gifs": true
 }

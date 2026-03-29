@@ -30,21 +30,25 @@ export type AgentConfig = {
   // LLM
   provider: "anthropic" | "openai" | "ollama";
   model: string;
-  gameModel: string;
+  gameModel: string;   // model used for game moves (can be cheaper/faster)
   apiKey: string;
   ollamaHost: string;
 
   // Agent
   personality: string;
+  /** Game-only strategy prompt. Empty string = not set. Max ~500 tokens (2000 chars). */
+  strategy: string;
   gifs: boolean;
-  debug: boolean;
 
   // Context window: max history entries per match type (undefined = full history)
   contextWindow: {
     debate: number;
     freeform: number;
     story: number | undefined;
+    game: number | undefined;
   };
+
+  debug: boolean;
 };
 
 export type GifResult = {

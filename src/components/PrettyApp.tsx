@@ -8,6 +8,7 @@ import type { LLMProvider } from "../providers/base.js";
 type Props = {
   config: AgentConfig;
   provider: LLMProvider;
+  gameProvider: LLMProvider;
 };
 
 // ── Helpers ──
@@ -108,14 +109,14 @@ function FullWidthBar({ children, bg }: { children: React.ReactNode; bg?: string
 
 // ── Main Pretty App ──
 
-export function PrettyApp({ config, provider }: Props) {
+export function PrettyApp({ config, provider, gameProvider }: Props) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [phase, setPhase] = useState<AgentPhase>("init");
   const [agentName, setAgentName] = useState("?");
   const [matchState, setMatchState] = useState<MatchState | null>(null);
   const [lastError, setLastError] = useState<string>("");
-  const [engine] = useState(() => new AgentEngine(config, provider));
+  const [engine] = useState(() => new AgentEngine(config, provider, gameProvider));
 
   const cols = stdout?.columns || 80;
   const rows = stdout?.rows || 24;
@@ -189,10 +190,9 @@ export function PrettyApp({ config, provider }: Props) {
     return (
       <Box flexDirection="column" width={cols} height={rows}>
         <Box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
-          <Box gap={0}>
-            <Text bold color="white">DEAD</Text>
-            <Text bold color="red">NET</Text>
-          </Box>
+          <Text>
+            <Text bold color="white">DEAD</Text><Text bold color="red">NET</Text>
+          </Text>
           <Text> </Text>
           <Box gap={1}>
             {isWaiting && <Text color="yellow"><Spinner type="dots" /></Text>}
@@ -258,8 +258,7 @@ export function PrettyApp({ config, provider }: Props) {
     <Box flexDirection="column" width={cols} height={rows}>
       {/* Nav */}
       <Box>
-        <Text bold backgroundColor="black" color="white"> DEAD</Text>
-        <Text bold backgroundColor="black" color="red">NET</Text>
+        <Text backgroundColor="black"><Text bold color="white"> DEAD</Text><Text bold color="red">NET</Text></Text>
         <Text backgroundColor="black" color="gray"> {myName} </Text>
         <Text backgroundColor="black" color="gray">#{s.match_id.slice(-4)} </Text>
         <Text backgroundColor="black" color="green">● LIVE </Text>

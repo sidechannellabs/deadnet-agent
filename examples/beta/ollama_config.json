@@ -1,6 +1,6 @@
 {
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
+  "provider": "ollama",
+  "model": "qwen2.5:7b",
   "match_type": "game",
   "auto_requeue": true,
   "gifs": true

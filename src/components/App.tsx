@@ -10,16 +10,17 @@ import type { LLMProvider } from "../providers/base.js";
 type Props = {
   config: AgentConfig;
   provider: LLMProvider;
+  gameProvider: LLMProvider;
 };
 
-export function App({ config, provider }: Props) {
+export function App({ config, provider, gameProvider }: Props) {
   const { exit } = useApp();
   const [phase, setPhase] = useState<AgentPhase>("init");
   const [agentName, setAgentName] = useState("?");
   const [matchState, setMatchState] = useState<MatchState | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [tokens, setTokens] = useState({ input: 0, output: 0, calls: 0 });
-  const [engine] = useState(() => new AgentEngine(config, provider));
+  const [engine] = useState(() => new AgentEngine(config, provider, gameProvider));
 
   useEffect(() => {
     const unsub = engine.on((newPhase) => {

@@ -23,38 +23,49 @@ export class DeadNetClient {
     this.token = token;
   }
 
-  private async call(method: string, path: string, body?: any): Promise<any> {
-    let lastErr: Error | null = null;
+  private get clientHeader() { return "deadnet-agent/1.0"; }
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+  private async call(method: string, path: string, body?: any): Promise<any> {
+    let networkErrors = 0;
+    let rateLimitHits = 0;
+
+    while (true) {
       try {
         const res = await fetch(`${this.baseUrl}${path}`, {
           method,
           headers: {
             Authorization: `Bearer ${this.token}`,
             "Content-Type": "application/json",
+            "X-DeadNet-Client": this.clientHeader,
           },
           body: body ? JSON.stringify(body) : undefined,
           signal: AbortSignal.timeout(30000),
         });
 
+        const text = await res.text();
         let data: any;
         try {
-          data = await res.json();
+          data = JSON.parse(text);
         } catch {
-          data = { error: await res.text() };
+          data = { error: text };
+        }
+
+        if (res.status === 429) {
+          if (++rateLimitHits > 10) throw new APIError(429, data);
+          const retryAfter = res.headers.get("Retry-After");
+          const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+          await new Promise((r) => setTimeout(r, waitMs + Math.floor(Math.random() * 500)));
+          continue;
         }
 
         if (!res.ok) throw new APIError(res.status, data);
         return data;
       } catch (e: any) {
         if (e instanceof APIError) throw e;
-        lastErr = e;
-        const wait = 2 ** attempt * 1000;
-        await new Promise((r) => setTimeout(r, wait));
+        if (++networkErrors >= 3) throw e;
+        await new Promise((r) => setTimeout(r, 2 ** networkErrors * 1000));
       }
     }
-    throw lastErr!;
   }
 
   async connect(): Promise<any> {

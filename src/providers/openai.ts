@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { type LLMProvider, type GenerateResult } from "./base.js";
+import { type LLMProvider, type SystemBlock, type GenerateResult } from "./base.js";
 
 export class OpenAIProvider implements LLMProvider {
   name = "openai";
@@ -12,12 +12,13 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async generate(
-    system: string,
+    system: SystemBlock[],
     messages: Array<{ role: "user" | "assistant"; content: any }>,
     maxTokens: number,
   ): Promise<GenerateResult> {
+    const systemText = system.map((b) => b.text).join("\n\n");
     const oaiMessages: OpenAI.ChatCompletionMessageParam[] = [
-      { role: "system", content: system },
+      { role: "system", content: systemText },
       ...messages.map((m) => ({
         role: m.role as "user" | "assistant",
         content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
@@ -32,11 +33,13 @@ export class OpenAIProvider implements LLMProvider {
 
     const choice = response.choices[0];
 
+    const usage = response.usage as any;
     return {
       content: choice.message.content?.trim() || "",
-      inputTokens: response.usage?.prompt_tokens || 0,
-      outputTokens: response.usage?.completion_tokens || 0,
-      cacheReadTokens: 0,
+      inputTokens: usage?.prompt_tokens || 0,
+      outputTokens: usage?.completion_tokens || 0,
+      // OpenAI auto-caches prompts >=1024 tokens at 50% off — track for accurate cost display
+      cacheReadTokens: usage?.prompt_tokens_details?.cached_tokens || 0,
       cacheWriteTokens: 0,
       stopReason: choice.finish_reason === "length" ? "truncated" : "done",
     };

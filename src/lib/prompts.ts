@@ -1,3 +1,4 @@
+import type { SystemBlock } from "../providers/base.js";
 import type { MatchState } from "./types.js";
 
 export const DEBATE_PHASE_PROMPTS: Record<string, string> = {
@@ -36,54 +37,75 @@ const MATCH_RULES: Record<string, string> = {
 - You may use request_end ONLY if the story has reached a natural, satisfying conclusion.`,
 };
 
-export function buildSystemPrompt(state: MatchState, personality: string, gifs = true): string {
+/**
+ * Build the system prompt as two blocks:
+ *   [0] Static (cache=true)  — personality, topic, opponent, rules, GIF instructions.
+ *                              Identical for every turn of the same match → cache hit on turns 2+.
+ *   [1] Dynamic (cache=false) — turn number, time remaining, score, phase, length constraint.
+ *                              Small (~40 tokens) and changes each turn.
+ */
+export function buildSystemPrompt(state: MatchState, personality: string, gifs = true): SystemBlock[] {
   const { match_type, topic, your_position, opponent, turn_number, max_turns, turns_remaining, time_remaining_seconds, score, your_side, phase } = state;
 
-  const posLine = your_position ? `\n- Your position: ${your_position}` : "";
+  const posLine = your_position ? `\nYour position: ${your_position}` : "";
   const oppLine = `Opponent: ${opponent.name}${opponent.description ? ` — ${opponent.description}` : ""}`;
-  const scoreLine = score ? `\nScore: You ${score[your_side]} — Opponent ${score[your_side === "A" ? "B" : "A"]}` : "";
-
-  const budget = state.token_budget_this_turn;
-
-  let phaseLine = "";
-  let lengthConstraint = `Write 3-5 sentences. Stay under ${budget} tokens.`;
-  if (match_type === "debate" && phase) {
-    phaseLine = `\n- Phase: ${phase.name.toUpperCase()} (turn ${phase.phase_turn}/${phase.phase_total_turns})`;
-    lengthConstraint = phase.name === "rebuttal"
-      ? `Write exactly 3 concise sentences. Stay under ${budget} tokens.`
-      : `Write exactly 5 sentences. Stay under ${budget} tokens.`;
-  }
-
   const rules = MATCH_RULES[match_type] || "";
 
-  return `${personality}
-
-You are competing in a live DeadNet ${match_type} match. A live audience watches, votes, and reacts in real time.
-
-MATCH CONTEXT:
-- Topic: ${topic}${posLine}
-- ${oppLine}
-- Turn ${turn_number} of ${max_turns} (${turns_remaining} remaining)${phaseLine}
-- Time remaining: ${time_remaining_seconds}s${scoreLine}
-${rules}${gifs ? `
-GIF EMBEDS:
+  const gifBlock = gifs ? `GIF EMBEDS:
 - Embed a GIF by writing [gif:your search query] anywhere in your text — the backend resolves it automatically.
 - Be specific and descriptive so the first result is right (e.g. [gif:michael scott no god please], [gif:explosion mushroom cloud], [gif:mic drop walk away]).
 - Use at most once per turn, for comedic timing, dramatic punctuation, or mic-drop moments.
 - If your opponent used a GIF (you'll see [gif:URL|title] in their message), the title tells you what they posted.
-- GIFs work best in freeform and rebuttal phases. Skip them in opening/closing statements.` : `
-GIFS:
+- GIFs work best in freeform and rebuttal phases. Skip them in opening/closing statements.` : `GIFS:
 - You do NOT post GIFs. Never include [gif:...] tags in your response.
-- Your opponent may post GIFs. You'll see them as [gif:URL|title] in the conversation history — the title tells you what they posted.`}
+- Your opponent may post GIFs. You'll see them as [gif:URL|title] in the conversation history — the title tells you what they posted.`;
+
+  const matchBlock = `You are competing in a live DeadNet ${match_type} match. A live audience watches, votes, and reacts in real time.
+
+MATCH CONTEXT:
+- Topic: ${topic}${posLine}
+- ${oppLine}
+- Match type: ${match_type} (${max_turns} turns total)
+${rules}
+${gifBlock}
 
 OUTPUT CONSTRAINTS:
 - Respond with ONLY your turn content. No preamble, no labels, no wrapping quotes.
 - NEVER mention being an AI, the platform, or anything meta about the system.
-- ${lengthConstraint} Make every sentence count.
 - ALWAYS end on a complete sentence — never mid-thought.`;
+
+  const budget = state.token_budget_this_turn;
+  let phaseLine = "";
+  let lengthConstraint = `Write 3-5 sentences. Stay under ${budget} tokens.`;
+  if (match_type === "debate" && phase) {
+    phaseLine = ` · Phase: ${phase.name.toUpperCase()} (turn ${phase.phase_turn}/${phase.phase_total_turns})`;
+    lengthConstraint = phase.name === "rebuttal"
+      ? `Write exactly 3 concise sentences. Stay under ${budget} tokens.`
+      : `Write exactly 5 sentences. Stay under ${budget} tokens.`;
+  }
+  const scoreLine = score ? ` · Score: You ${score[your_side]} — Opp ${score[your_side === "A" ? "B" : "A"]}` : "";
+
+  const dynamicBlock = `Turn ${turn_number}/${max_turns} (${turns_remaining} remaining)${phaseLine} · ${time_remaining_seconds}s left${scoreLine}
+${lengthConstraint} Make every sentence count.`;
+
+  return [
+    { text: personality, cache: true },   // cached once per session — never changes
+    { text: matchBlock, cache: true },    // cached once per match — rewritten when topic/opponent changes
+    { text: dynamicBlock },               // ~40 tokens, changes every turn
+  ];
 }
 
-export function buildGamePrompt(gameState: any, personality: string, yourSide: string, opponentName: string): string {
+/**
+ * Build the game prompt as two blocks:
+ *   [0] personality (cache=true)  — never changes across sessions
+ *   [1] strategy   (cache=true)  — game strategy; omitted if empty; cached per match
+ *   [2] matchBlock (cache=true)  — game name, rules, response format; cached per match
+ *   [3] dynamicBlock (cache=false) — board render, valid moves, opponent message; changes every move
+ *
+ * For OpenAI (auto-prefix-cache) and llama.rn/Ollama (KV prefix cache), the ordering
+ * of stable-before-dynamic ensures maximum cache hits without explicit markers.
+ */
+export function buildGamePrompt(gameState: any, personality: string, strategy: string, yourSide: string, opponentName: string, opponentLastMessage?: string): SystemBlock[] {
   const boardRender: string = gameState.board_render || "(board unavailable)";
   const rawValidMoves = gameState.valid_moves;
   const moveNumber: number = gameState.move_number || 1;
@@ -104,17 +126,9 @@ export function buildGamePrompt(gameState: any, personality: string, yourSide: s
       .filter(Boolean)
       .join("\n");
 
-    return `${personality}
-
-You are playing ${gameName} in a live DeadNet match. A live audience watches.
-You are Player ${yourSide}. Opponent: ${opponentName}. Turn ${moveNumber}.
+    const matchBlock = `You are playing ${gameName} in a live DeadNet match. A live audience watches.
+You are Player ${yourSide}. Opponent: ${opponentName}.
 ${gameRules ? `\nRULES:\n${gameRules}\n` : ""}
-CURRENT BOARD:
-${boardRender}
-
-VALID COMMANDS PER UNIT (each unit can do one action this turn):
-${unitLines}
-
 Each command is 3 chars: SquareAction (e.g. B2M = move to B2, D4A = attack D4).
 Prefix with unit label to form the full command string: U1B2M, U2D4A, etc.
 Combine all your unit commands into a single string: e.g. "U1B2MU2D4A".
@@ -123,9 +137,22 @@ Snared units are automatically skipped — omit them from your commands string.
 RESPONSE FORMAT:
 Respond with ONLY a JSON object on a single line:
 {"commands": "U1...U2...", "message": "..."}
-
 The message is REQUIRED (max 20 words) — make it dramatic, taunting, or witty. The audience sees it.
 Pick the best tactical commands. Respond with ONLY the JSON — no other text.`;
+
+    const dynamicBlock = `Turn ${moveNumber}.${opponentLastMessage ? `\n\nOpponent's last message: "${opponentLastMessage}"` : ''}
+
+CURRENT BOARD:
+${boardRender}
+
+VALID COMMANDS PER UNIT (each unit can do one action this turn):
+${unitLines}`;
+
+    const blocks: SystemBlock[] = [{ text: personality, cache: true }];
+    if (strategy) blocks.push({ text: strategy, cache: true });
+    blocks.push({ text: matchBlock, cache: true });
+    blocks.push({ text: dynamicBlock });
+    return blocks;
   }
 
   const validMoves: any[] = Array.isArray(rawValidMoves) ? rawValidMoves : [];
@@ -133,24 +160,29 @@ Pick the best tactical commands. Respond with ONLY the JSON — no other text.`;
     .map((m, i) => `${i + 1}. ${JSON.stringify(m)}`)
     .join("\n");
 
-  return `${personality}
-
-You are playing ${gameName} in a live DeadNet match. A live audience watches.
-You are Player ${yourSide}. Opponent: ${opponentName}. Move ${moveNumber}.
+  const matchBlock = `You are playing ${gameName} in a live DeadNet match. A live audience watches.
+You are Player ${yourSide}. Opponent: ${opponentName}.
 ${gameRules ? `\nRULES:\n${gameRules}\n` : ""}
+RESPONSE FORMAT:
+Respond with ONLY a JSON object on a single line:
+{"move": N, "message": "..."}
+N is the number of your chosen move from the list above.
+The message is REQUIRED (max 20 words) — make it dramatic, taunting, or witty. The audience sees it.
+Pick the strategically best move. Respond with ONLY the JSON — no other text.`;
+
+  const dynamicBlock = `Move ${moveNumber}.${opponentLastMessage ? `\n\nOpponent's last message: "${opponentLastMessage}"` : ''}
+
 CURRENT BOARD:
 ${boardRender}
 
 VALID MOVES:
-${moveList}
+${moveList}`;
 
-RESPONSE FORMAT:
-Respond with ONLY a JSON object on a single line:
-{"move": N, "message": "..."}
-
-N is the number of your chosen move from the list above.
-The message is REQUIRED (max 20 words) — make it dramatic, taunting, or witty. The audience sees it.
-Pick the strategically best move. Respond with ONLY the JSON — no other text.`;
+  const blocks: SystemBlock[] = [{ text: personality, cache: true }];
+  if (strategy) blocks.push({ text: strategy, cache: true });
+  blocks.push({ text: matchBlock, cache: true });
+  blocks.push({ text: dynamicBlock });
+  return blocks;
 }
 
 /** Replace [gif:URL|title] with [gif:"title"] so the LLM gets readable context */

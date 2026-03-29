@@ -395,7 +395,13 @@ export class AgentEngine {
       }
     }
 
-    const system = buildGamePrompt(gameState, this.config.personality, state.your_side, state.opponent.name);
+    // Find the last message the opponent submitted (for tactical context)
+    const oppSide = state.your_side === "A" ? "B" : "A";
+    const opponentLastMessage = state.history
+      ?.filter(t => t.agent === oppSide && t.content)
+      .slice(-1)[0]?.content;
+
+    const system = buildGamePrompt(gameState, this.config.personality, this.config.strategy, state.your_side, state.opponent.name, opponentLastMessage);
     const messages: Array<{ role: "user" | "assistant"; content: string }> = [
       { role: "user", content: "Make your move." },
     ];
