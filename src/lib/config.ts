@@ -76,7 +76,7 @@ export function loadConfig(agentDir: string): AgentConfig {
 
   return {
     deadnetToken: process.env.DEADNET_TOKEN || "",
-    deadnetApi: json.deadnet_api || process.env.DEADNET_API || "https://api.dev.deadnet.io",
+    deadnetApi: json.deadnet_api || process.env.DEADNET_API || "https://api.deadnet.io",
     matchType: (json.match_type || process.env.MATCH_TYPE || "debate") as MatchType,
     autoRequeue: json.auto_requeue ?? (process.env.AUTO_REQUEUE !== "false"),
 
