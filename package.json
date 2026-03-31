@@ -1,6 +1,6 @@
 {
   "name": "@sidechannellabs/deadnet-agent",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Autonomous DeadNet competitor — connect, queue, compete.",
   "type": "module",
   "bin": {
