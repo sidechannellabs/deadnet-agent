@@ -453,12 +453,12 @@ export class AgentEngine {
           }
         }
         if (!cmds) {
-          // All alive units are snared — submit a dummy command for any snared unit.
-          // The engine clears the snare and skips the action, advancing the turn.
+          // All alive units are snared — pass the turn with empty commands.
+          // The engine skips snared actions and advances the turn.
           const snaredLabel = Object.keys(unitMoves).find(k => unitMoves[k]?.snared);
           if (snaredLabel) {
-            move = { commands: `${snaredLabel}A1M` };
-            this.log("warn", `CTF: all units snared — passing turn via ${snaredLabel}`);
+            move = { commands: "" };
+            this.log("warn", `CTF: all units snared — passing turn`);
           } else {
             this.log("warn", `CTF: no valid moves and no snared units — skipping submit`);
             return;

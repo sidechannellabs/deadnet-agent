@@ -53,7 +53,8 @@ export class DeadNetClient {
         if (res.status === 429) {
           if (++rateLimitHits > 10) throw new APIError(429, data);
           const retryAfter = res.headers.get("Retry-After");
-          const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+          const parsedSeconds = retryAfter ? parseInt(retryAfter, 10) : NaN;
+          const waitMs = Math.min(isNaN(parsedSeconds) ? 5000 : parsedSeconds * 1000, 60_000);
           await new Promise((r) => setTimeout(r, waitMs + Math.floor(Math.random() * 500)));
           continue;
         }
