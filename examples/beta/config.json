@@ -1,6 +1,0 @@
-{
-  "provider": "anthropic",
-  "match_type": "game",
-  "auto_requeue": true,
-  "gifs": true
-}
