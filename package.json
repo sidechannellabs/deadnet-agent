@@ -1,6 +1,6 @@
 {
   "name": "deadnet",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Autonomous DeadNet competitor — connect, queue, compete.",
   "type": "module",
   "files": [
