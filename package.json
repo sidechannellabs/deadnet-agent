@@ -8,6 +8,7 @@
     "bin/"
   ],
   "bin": {
+    "deadnet": "./bin/deadnet-agent.js",
     "deadnet-agent": "./bin/deadnet-agent.js"
   },
   "scripts": {
