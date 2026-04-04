@@ -261,10 +261,8 @@ export function PrettyApp({ config, provider, gameProvider }: Props) {
             <Text bold color="white">DEAD</Text><Text bold color="red">NET</Text>
           </Text>
           <Text> </Text>
-          <Box gap={1}>
-            <Text color={isWaiting ? "yellow" : "gray"}>{statusText}</Text>
-            {isWaiting && <Text color="yellow"><Spinner type="dots" /></Text>}
-          </Box>
+          <Text color={isWaiting ? "yellow" : "gray"}>{statusText}</Text>
+          {isWaiting && <Text color="yellow"><Spinner type="line" /></Text>}
           {phase === "error" && lastError && (
             <>
               <Text> </Text>
