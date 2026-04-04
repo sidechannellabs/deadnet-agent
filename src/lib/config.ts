@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { resolve, join } from "path";
 import { homedir } from "os";
 import { config as loadDotenv } from "dotenv";
@@ -30,17 +30,114 @@ type ConfigJson = {
   };
 };
 
+const DEFAULT_ENV = `\
+# Your DeadNet agent token — get one at https://deadnet.io/dashboard
+DEADNET_TOKEN=
+
+# LLM provider API key — only the one matching "provider" in config.json is needed
+ANTHROPIC_API_KEY=
+# OPENAI_API_KEY=
+`;
+
+const DEFAULT_CONFIG = `\
+{
+  "provider": "anthropic",
+  "model": "auto",
+  "game_model": "auto",
+  "match_type": "debate",
+  "auto_requeue": true,
+  "gifs": true
+}
+`;
+
+const DEFAULT_PERSONALITY = `\
+# My DeadNet Agent
+
+You are a sharp, articulate competitor. You adapt your tone to the format —
+incisive in debate, inventive in freeform, vivid in story.
+
+## Debate Style
+- Lead with your strongest argument, not a preamble.
+- When countering, name exactly what your opponent got wrong before pivoting.
+- Use concrete examples — real events, real numbers, real consequences.
+- End turns with something memorable: a sharp question, a vivid image, a damning comparison.
+- **Opening:** Plant your flag hard. Make your thesis impossible to ignore.
+- **Rebuttal:** Go surgical. Dismantle their weakest point, then hit them with something new.
+- **Closing:** Hammer home your two strongest points. End with the line the audience remembers.
+
+## Freeform Style
+- Genuinely curious. Ask questions that make the other agent think harder.
+- Make unexpected connections between ideas.
+- Comfortable with disagreement — don't smooth things over.
+
+## Story Style
+- Favor tension and subtext over exposition.
+- Write characters who want something and are willing to act.
+- Descriptions are sensory and specific, never generic.
+`;
+
+const DEFAULT_STRATEGY = `\
+# Game Strategy
+
+## General Principles
+- Prioritize board control over piece preservation.
+- Look two moves ahead: what does my move enable next turn?
+- If ahead, simplify. If behind, complicate.
+- Never let the opponent settle — keep them reacting to you.
+
+## Drop4
+- Stack the center columns first — they give the most winning lines.
+- Block your opponent's three-in-a-row before extending your own two-in-a-row.
+- When you have a forced win, take it immediately.
+
+## Reversi
+- Control the corners and edges — they can never be flipped.
+- In the early game, fewer pieces is often better (more mobility).
+- Force your opponent into moves that give you corners.
+
+## CTF
+- Rush the opponent's flag while keeping one unit back to defend yours.
+- Snare their fastest unit first to disrupt their attack timing.
+
+## Dots & Boxes
+- Avoid completing the third side of any box early — it hands your opponent a chain.
+- Sacrifice short chains to force your opponent to open the long ones.
+`;
+
+function setupConfigDir(dir: string): void {
+  const isNew = !existsSync(dir);
+  if (isNew) mkdirSync(dir, { recursive: true });
+
+  const files: Array<{ name: string; content: string }> = [
+    { name: ".env",           content: DEFAULT_ENV },
+    { name: "config.json",    content: DEFAULT_CONFIG },
+    { name: "PERSONALITY.md", content: DEFAULT_PERSONALITY },
+    { name: "STRATEGY.md",    content: DEFAULT_STRATEGY },
+  ];
+
+  const written: string[] = [];
+  for (const { name, content } of files) {
+    const filePath = join(dir, name);
+    if (!existsSync(filePath)) {
+      writeFileSync(filePath, content, "utf-8");
+      written.push(name);
+    }
+  }
+
+  if (written.length > 0) {
+    console.log(`\nDeadNet agent config ${isNew ? "created" : "updated"} at: ${dir}`);
+    console.log(`  Created: ${written.join(", ")}`);
+    console.log(`\nNext step: add your tokens to ${join(dir, ".env")}`);
+    console.log(`  DEADNET_TOKEN   — get one at https://deadnet.io/dashboard`);
+    console.log(`  ANTHROPIC_API_KEY — or set OPENAI_API_KEY and change provider in config.json\n`);
+  }
+}
+
 export function loadConfig(agentDir?: string): AgentConfig {
   const dir = resolve(agentDir || getConfigDir());
 
-  // Create config dir if it doesn't exist (first run)
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-    console.log(`Created config directory: ${dir}`);
-    console.log(`Add your settings to ${join(dir, ".env")} to get started.`);
-    console.log(`  DEADNET_TOKEN=dn_...`);
-    console.log(`  ANTHROPIC_API_KEY=sk-ant-...`);
-  }
+  // First-run setup: create dir + default files for any that don't exist yet
+  setupConfigDir(dir);
 
   // Load .env
   const envPath = resolve(dir, ".env");
