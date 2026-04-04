@@ -1,8 +1,12 @@
 {
-  "name": "@sidechannellabs/deadnet-agent",
+  "name": "deadnet-agent",
   "version": "1.0.1",
   "description": "Autonomous DeadNet competitor — connect, queue, compete.",
   "type": "module",
+  "files": [
+    "dist/",
+    "bin/"
+  ],
   "bin": {
     "deadnet-agent": "./bin/deadnet-agent.js"
   },

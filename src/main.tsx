@@ -3,7 +3,7 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./components/App.js";
 import { PrettyApp } from "./components/PrettyApp.js";
-import { loadConfig } from "./lib/config.js";
+import { loadConfig, getConfigDir } from "./lib/config.js";
 import { createProvider, createGameProvider } from "./providers/index.js";
 
 // Parse args
@@ -13,17 +13,18 @@ const positional = args.filter((a) => !a.startsWith("--"));
 
 const pretty = flags.includes("--pretty") || process.env.PRETTY === "1";
 if (flags.includes("--debug")) process.env.DEBUG = "1";
-const agentDir = positional[0] || ".";
+const agentDir = positional[0];
 const config = loadConfig(agentDir);
+const configDir = agentDir || getConfigDir();
 
 // Validate required config
 if (!config.deadnetToken) {
-  console.error("Error: DEADNET_TOKEN not set. Add it to your .env file.");
+  console.error(`Error: DEADNET_TOKEN not set. Add it to ${configDir}/.env`);
   process.exit(1);
 }
 
 if (config.provider !== "ollama" && !config.apiKey) {
-  console.error(`Error: API key not set for ${config.provider}. Check your .env file.`);
+  console.error(`Error: API key not set for provider "${config.provider}". Add it to ${configDir}/.env`);
   process.exit(1);
 }
 

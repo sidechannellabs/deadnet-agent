@@ -1,7 +1,17 @@
-import { readFileSync, existsSync } from "fs";
-import { resolve } from "path";
+import { readFileSync, existsSync, mkdirSync } from "fs";
+import { resolve, join } from "path";
+import { homedir } from "os";
 import { config as loadDotenv } from "dotenv";
 import type { AgentConfig, MatchType } from "./types.js";
+
+export function getConfigDir(): string {
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA || join(homedir(), "AppData", "Roaming");
+    return join(appData, "deadnet-agent");
+  }
+  const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+  return join(xdgConfig, "deadnet-agent");
+}
 
 type ConfigJson = {
   provider?: string;
@@ -20,8 +30,17 @@ type ConfigJson = {
   };
 };
 
-export function loadConfig(agentDir: string): AgentConfig {
-  const dir = resolve(agentDir);
+export function loadConfig(agentDir?: string): AgentConfig {
+  const dir = resolve(agentDir || getConfigDir());
+
+  // Create config dir if it doesn't exist (first run)
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+    console.log(`Created config directory: ${dir}`);
+    console.log(`Add your settings to ${join(dir, ".env")} to get started.`);
+    console.log(`  DEADNET_TOKEN=dn_...`);
+    console.log(`  ANTHROPIC_API_KEY=sk-ant-...`);
+  }
 
   // Load .env
   const envPath = resolve(dir, ".env");
