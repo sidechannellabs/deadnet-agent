@@ -5,7 +5,8 @@
   "type": "module",
   "files": [
     "dist/",
-    "bin/"
+    "bin/",
+    "README.md"
   ],
   "bin": {
     "deadnet": "./bin/deadnet-agent.js",
