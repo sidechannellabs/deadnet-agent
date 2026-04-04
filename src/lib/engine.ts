@@ -15,6 +15,7 @@ export class AgentEngine {
   agentName = "?";
   matchId: string | null = null;
   lastState: MatchState | null = null;
+  lastGameState: any = null;
   phase: AgentPhase = "init";
   logs: LogEntry[] = [];
   totalInputTokens = 0;
@@ -353,7 +354,6 @@ export class AgentEngine {
   }
 
   private async takeGameMove(state: MatchState) {
-    this.emit("thinking");
     this.log("info", "analyzing board...");
 
     let gameState: any;
@@ -363,6 +363,9 @@ export class AgentEngine {
       this.log("error", `failed to get game state: ${e.message}`);
       return;
     }
+
+    this.lastGameState = gameState;
+    this.emit("thinking");
 
     this.debug("game-state", {
       your_turn: gameState.your_turn,
@@ -566,6 +569,7 @@ export class AgentEngine {
 
     this.matchId = null;
     this.lastState = null;
+    this.lastGameState = null;
 
     if (this.config.autoRequeue && this.running) {
       this.log("info", "re-queuing in 5s...");

@@ -109,12 +109,78 @@ function FullWidthBar({ children, bg }: { children: React.ReactNode; bg?: string
 
 // ── Main Pretty App ──
 
+// ── Board rendering ──
+
+type Seg = { text: string; color?: string; dim?: boolean; bold?: boolean };
+
+function toBoardSegs(line: string, myColor: string, oppColor: string): Seg[] {
+  const segs: Seg[] = [];
+  for (const ch of line) {
+    let color: string | undefined;
+    let dim = false;
+    let bold = false;
+    if (ch === "X") { color = myColor; bold = true; }
+    else if (ch === "O") { color = oppColor; bold = true; }
+    else if (ch === "·" || ch === ".") { dim = true; }
+
+    const last = segs[segs.length - 1];
+    if (last && last.color === color && last.dim === dim && last.bold === bold) {
+      last.text += ch;
+    } else {
+      segs.push({ text: ch, color, dim, bold });
+    }
+  }
+  return segs;
+}
+
+function BoardLine({ line, myColor, oppColor }: { line: string; myColor: string; oppColor: string }) {
+  const segs = toBoardSegs(line, myColor, oppColor);
+  return (
+    <Box>
+      <Text>
+        {segs.map((seg, i) => (
+          <Text key={i} color={seg.color} dimColor={seg.dim} bold={seg.bold}>
+            {seg.text}
+          </Text>
+        ))}
+      </Text>
+    </Box>
+  );
+}
+
+function GameBoard({
+  gameState, myColor, oppColor, maxLines,
+}: {
+  gameState: any; myColor: string; oppColor: string; maxLines: number;
+}) {
+  if (!gameState?.board_render) {
+    return (
+      <Box flexGrow={1} alignItems="center" justifyContent="center">
+        <Text dimColor>waiting for board...</Text>
+      </Box>
+    );
+  }
+
+  const lines = (gameState.board_render as string).split("\n").slice(0, maxLines);
+
+  return (
+    <Box flexDirection="column" paddingLeft={2} paddingTop={1}>
+      {lines.map((line, i) => (
+        <BoardLine key={i} line={line} myColor={myColor} oppColor={oppColor} />
+      ))}
+    </Box>
+  );
+}
+
+// ── Main Pretty App ──
+
 export function PrettyApp({ config, provider, gameProvider }: Props) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [phase, setPhase] = useState<AgentPhase>("init");
   const [agentName, setAgentName] = useState("?");
   const [matchState, setMatchState] = useState<MatchState | null>(null);
+  const [lastGameState, setLastGameState] = useState<any>(null);
   const [lastError, setLastError] = useState<string>("");
   const [engine] = useState(() => new AgentEngine(config, provider, gameProvider));
 
@@ -126,6 +192,7 @@ export function PrettyApp({ config, provider, gameProvider }: Props) {
       setPhase(newPhase);
       setAgentName(engine.agentName);
       setMatchState(engine.lastState ? { ...engine.lastState } : null);
+      setLastGameState(engine.lastGameState ? { ...engine.lastGameState } : null);
       if (newPhase === "error") {
         const errLog = [...engine.logs].reverse().find(l => l.level === "error");
         if (errLog) setLastError(errLog.message);
@@ -228,10 +295,17 @@ export function PrettyApp({ config, provider, gameProvider }: Props) {
   const footerLines = 2; // status + thinking/spacer
   const transcriptHeight = rows - headerLines - footerLines;
 
+  // For game matches, calculate board vs taunt split
+  const isGame = s.match_type === "game";
+  const boardLineCount = lastGameState?.board_render
+    ? (lastGameState.board_render as string).split("\n").length + 1 // +1 for top padding
+    : 0;
+  const tauntLines = isGame ? Math.max(0, transcriptHeight - boardLineCount) : 0;
+
   // Show last N lines of transcript (chat-style, grows from bottom)
-  const visibleLines = allLines.slice(-Math.max(1, transcriptHeight));
+  const visibleLines = allLines.slice(-Math.max(1, isGame ? tauntLines : transcriptHeight));
   // Pad with empty lines if transcript is shorter than available space
-  const padCount = Math.max(0, transcriptHeight - visibleLines.length);
+  const padCount = Math.max(0, (isGame ? tauntLines : transcriptHeight) - visibleLines.length);
 
   // Score bar
   const myScore = s.score[s.your_side] || 0;
@@ -283,7 +357,17 @@ export function PrettyApp({ config, provider, gameProvider }: Props) {
         </Box>
       )}
 
-      {/* Transcript — fills remaining space, bottom-aligned */}
+      {/* Game board — shown instead of chat transcript for game matches */}
+      {isGame && (
+        <GameBoard
+          gameState={lastGameState}
+          myColor={myColor}
+          oppColor={oppColor}
+          maxLines={boardLineCount}
+        />
+      )}
+
+      {/* Transcript — chat bubbles (game: only taunts; others: full history) */}
       {padCount > 0 && (
         <Box flexDirection="column" height={padCount}>
           {Array.from({ length: padCount }, (_, i) => (
