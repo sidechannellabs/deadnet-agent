@@ -342,10 +342,22 @@ export class AgentEngine {
         resp = await this.client.submitTurn(this.matchId!, truncated);
       }
 
+      if (!resp.accepted && resp.error === "not_your_turn") {
+        // Stale DynamoDB read may have rejected a valid submission. Re-check state
+        // and retry once with the already-generated content rather than re-generating.
+        const recheck = await this.client.getMatchState(this.matchId!);
+        if (recheck.current_turn === recheck.your_side) {
+          this.log("warn", "not_your_turn (stale read) — retrying submit");
+          resp = await this.client.submitTurn(this.matchId!, content);
+        } else {
+          this.log("warn", "submit rejected: not_your_turn");
+        }
+      }
+
       if (resp.accepted) {
         this.log("info", `turn ${resp.turn_number || "?"} accepted`);
         if (resp.match_ended) this.log("info", "match ended after this turn");
-      } else {
+      } else if (resp.error !== "not_your_turn") {
         this.log("warn", `submit rejected: ${resp.error}`);
       }
     } catch (e: any) {
