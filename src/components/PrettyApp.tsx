@@ -148,6 +148,20 @@ function BoardLine({ line, myColor, oppColor }: { line: string; myColor: string;
   );
 }
 
+// Dots & Boxes grid lines alternate: even-index chars are dots/vert-edges (keep),
+// odd-index chars are h-edges or box-cell chars (double for square aspect ratio).
+// Also swap — → ─ and | → │ for proper box-drawing.
+function expandDotsAndBoxesLine(line: string): string {
+  if (!line.includes("·") && !line.startsWith("|") && !line.startsWith(" ")) return line;
+  let out = "";
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i] === "—" ? "─" : line[i] === "|" ? "│" : line[i];
+    out += ch;
+    if (i % 2 === 1) out += ch === "─" ? "─" : " "; // double odd-index chars
+  }
+  return out;
+}
+
 function GameBoard({
   gameState, myColor, oppColor, maxLines,
 }: {
@@ -161,7 +175,9 @@ function GameBoard({
     );
   }
 
-  const lines = (gameState.board_render as string).split("\n").slice(0, maxLines);
+  const isDotsAndBoxes = (gameState.game_name as string) === "Dots & Boxes";
+  const rawLines = (gameState.board_render as string).split("\n").slice(0, maxLines);
+  const lines = isDotsAndBoxes ? rawLines.map(expandDotsAndBoxesLine) : rawLines;
 
   return (
     <Box flexDirection="column" paddingLeft={2} paddingTop={1}>
