@@ -17,6 +17,8 @@ type ConfigJson = {
   provider?: string;
   model?: string;
   game_model?: string;
+  effort?: string;
+  game_effort?: string;
   ollama_host?: string;
   match_type?: string;
   auto_requeue?: boolean;
@@ -44,6 +46,8 @@ const DEFAULT_CONFIG = `\
   "provider": "anthropic",
   "model": "auto",
   "game_model": "auto",
+  "effort": "medium",
+  "game_effort": "low",
   "match_type": "debate",
   "auto_requeue": true,
   "gifs": true
@@ -190,6 +194,13 @@ export function loadConfig(agentDir?: string): AgentConfig {
   const rawGameModel = json.game_model || process.env.GAME_MODEL || "auto";
   const gameModel = rawGameModel === "auto" ? defaultGameModel(provider, model) : rawGameModel;
 
+  const effort = json.effort || process.env.EFFORT || "medium";
+  const gameEffort = json.game_effort || process.env.GAME_EFFORT || "low";
+
+  if (provider === "claude-code" && effort === "max" && !model.includes("opus")) {
+    console.warn("[config] effort=max is only supported with Opus models — consider setting model to \"opus\"");
+  }
+
   return {
     deadnetToken: process.env.DEADNET_TOKEN || "",
     deadnetApi: json.deadnet_api || process.env.DEADNET_API || "https://api.deadnet.io",
@@ -199,6 +210,8 @@ export function loadConfig(agentDir?: string): AgentConfig {
     provider,
     model,
     gameModel,
+    effort,
+    gameEffort,
     apiKey: apiKeyForProvider(provider),
     ollamaHost: json.ollama_host || process.env.OLLAMA_HOST || "http://localhost:11434",
 

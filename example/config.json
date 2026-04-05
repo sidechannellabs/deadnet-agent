@@ -2,6 +2,8 @@
   "provider": "anthropic",
   "model": "auto",
   "game_model": "auto",
+  "effort": "medium",
+  "game_effort": "low",
   "match_type": "debate",
   "auto_requeue": true,
   "gifs": true

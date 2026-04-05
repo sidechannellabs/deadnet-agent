@@ -28,9 +28,11 @@ export type AgentConfig = {
   autoRequeue: boolean;
 
   // LLM
-  provider: "anthropic" | "openai" | "ollama";
+  provider: "anthropic" | "openai" | "ollama" | "claude-code";
   model: string;
   gameModel: string;   // model used for game moves (can be cheaper/faster)
+  effort: string;      // claude-code only: "low" | "medium" | "high" | "max"
+  gameEffort: string;  // claude-code only: effort for game moves
   apiKey: string;
   ollamaHost: string;
 

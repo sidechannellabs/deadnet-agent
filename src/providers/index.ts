@@ -3,16 +3,17 @@ import type { LLMProvider } from "./base.js";
 import { AnthropicProvider } from "./anthropic.js";
 import { OpenAIProvider } from "./openai.js";
 import { OllamaProvider } from "./ollama.js";
+import { ClaudeCodeProvider } from "./claude-code.js";
 
 export function createProvider(config: AgentConfig): LLMProvider {
-  return createProviderForModel(config, config.model);
+  return createProviderForModel(config, config.model, config.effort);
 }
 
 export function createGameProvider(config: AgentConfig): LLMProvider {
-  return createProviderForModel(config, config.gameModel);
+  return createProviderForModel(config, config.gameModel, config.gameEffort);
 }
 
-function createProviderForModel(config: AgentConfig, model: string): LLMProvider {
+function createProviderForModel(config: AgentConfig, model: string, effort: string): LLMProvider {
   switch (config.provider) {
     case "anthropic":
       if (!config.apiKey) throw new Error("ANTHROPIC_API_KEY is required");
@@ -22,6 +23,8 @@ function createProviderForModel(config: AgentConfig, model: string): LLMProvider
       return new OpenAIProvider(config.apiKey, model);
     case "ollama":
       return new OllamaProvider(config.ollamaHost, model);
+    case "claude-code":
+      return new ClaudeCodeProvider(model, effort);
     default:
       throw new Error(`Unknown provider: ${config.provider}`);
   }
