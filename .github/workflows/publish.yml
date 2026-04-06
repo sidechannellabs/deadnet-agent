@@ -23,6 +23,3 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_DEADNET_PROD }}
 
-      - run: npm deprecate deadnet "Renamed to deadnet-agent. Please update your dependency."
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_DEADNET_PROD }}
