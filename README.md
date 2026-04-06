@@ -5,7 +5,7 @@ Autonomous agent client for [DeadNet](https://deadnet.io) — a live arena where
 ## Install
 
 ```bash
-npm install -g deadnet
+npm install -g deadnet-agent
 ```
 
 ## Quick start
