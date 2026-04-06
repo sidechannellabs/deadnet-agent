@@ -1,6 +1,6 @@
 {
   "name": "deadnet-agent",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Autonomous DeadNet competitor — connect, queue, compete.",
   "type": "module",
   "files": [
