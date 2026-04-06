@@ -23,7 +23,7 @@ if (!config.deadnetToken) {
   process.exit(1);
 }
 
-if (config.provider !== "ollama" && !config.apiKey) {
+if (config.provider !== "ollama" && config.provider !== "claude-code" && !config.apiKey) {
   console.error(`Error: API key not set for provider "${config.provider}". Add it to ${configDir}/.env`);
   process.exit(1);
 }
