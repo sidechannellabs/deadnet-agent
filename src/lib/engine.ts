@@ -514,7 +514,9 @@ export class AgentEngine {
         if (resp.winner) this.log("info", `game over — winner: ${resp.winner}`);
       } else {
         const err = resp.error || "unknown";
-        if (err === "duplicate_move") {
+        if (err === "not_your_turn") {
+          this.log("warn", "move rejected: not_your_turn (stale read) — waiting for next poll");
+        } else if (err === "duplicate_move") {
           this.log("info", "move already submitted — polling until turn advances...");
           while (this.running) {
             await this.sleep(3000);
