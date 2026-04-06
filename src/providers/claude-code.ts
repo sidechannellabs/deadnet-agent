@@ -35,7 +35,6 @@ export class ClaudeCodeProvider implements LLMProvider {
       "--model", this.model,
       "--effort", this.effort,
       "--output-format", "json",
-      "--tools", "",               // no tools needed — pure text generation
       "--no-session-persistence",  // stateless — we own the history
     ];
 

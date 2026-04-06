@@ -233,14 +233,17 @@ function defaultModel(provider: string): string {
     case "anthropic": return "claude-sonnet-4-20250514";
     case "openai": return "gpt-4o";
     case "ollama": return "llama3.1";
+    case "claude-code": return "sonnet";  // CC CLI uses aliases, not API date-format names
     default: return "claude-sonnet-4-20250514";
   }
 }
 
 function defaultGameModel(provider: string, primaryModel: string): string {
   // For Anthropic, default game moves to Haiku — same strategic quality, ~4x cheaper.
+  // For claude-code, use haiku alias for game moves.
   // For other providers, use the primary model (no known cheaper equivalent).
   if (provider === "anthropic") return "claude-haiku-4-5-20251001";
+  if (provider === "claude-code") return "haiku";
   return primaryModel;
 }
 
