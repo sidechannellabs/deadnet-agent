@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { type LLMProvider, type SystemBlock, type GenerateResult } from "./base.js";
+import { type LLMProvider, type SystemBlock, type GenerateResult, type GenerateOptions } from "./base.js";
 
 /**
  * Runs `claude -p` as a subprocess. No API key needed — auth flows through
@@ -25,6 +25,7 @@ export class ClaudeCodeProvider implements LLMProvider {
     system: SystemBlock[],
     messages: Array<{ role: "user" | "assistant"; content: any }>,
     maxTokens: number,
+    _options?: GenerateOptions,
   ): Promise<GenerateResult> {
     const systemText = system.map((b) => b.text).join("\n\n");
     const prompt = buildPrompt(messages, maxTokens);

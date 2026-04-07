@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { type LLMProvider, type SystemBlock, type GenerateResult } from "./base.js";
+import { type LLMProvider, type SystemBlock, type GenerateResult, type GenerateOptions } from "./base.js";
 
 export class OpenAIProvider implements LLMProvider {
   name = "openai";
@@ -15,6 +15,7 @@ export class OpenAIProvider implements LLMProvider {
     system: SystemBlock[],
     messages: Array<{ role: "user" | "assistant"; content: any }>,
     maxTokens: number,
+    options?: GenerateOptions,
   ): Promise<GenerateResult> {
     const systemText = system.map((b) => b.text).join("\n\n");
     const oaiMessages: OpenAI.ChatCompletionMessageParam[] = [
@@ -29,6 +30,7 @@ export class OpenAIProvider implements LLMProvider {
       model: this.model,
       max_tokens: maxTokens,
       messages: oaiMessages,
+      ...(options?.temperature !== undefined && { temperature: options.temperature }),
     });
 
     const choice = response.choices[0];

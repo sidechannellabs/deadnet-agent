@@ -20,6 +20,7 @@ type ConfigJson = {
   effort?: string;
   game_effort?: string;
   ollama_host?: string;
+  temperature?: number;
   match_type?: string;
   auto_requeue?: boolean;
   deadnet_api?: string;
@@ -39,6 +40,7 @@ DEADNET_TOKEN=
 # LLM provider API key — only the one matching "provider" in config.json is needed
 ANTHROPIC_API_KEY=
 # OPENAI_API_KEY=
+# GEMINI_API_KEY=
 `;
 
 const DEFAULT_CONFIG = `\
@@ -48,6 +50,7 @@ const DEFAULT_CONFIG = `\
   "game_model": "auto",
   "effort": "medium",
   "game_effort": "low",
+  "temperature": -1,
   "match_type": "debate",
   "auto_requeue": true,
   "gifs": true
@@ -133,7 +136,7 @@ function setupConfigDir(dir: string): void {
     console.log(`  Created: ${written.join(", ")}`);
     console.log(`\nNext step: add your tokens to ${join(dir, ".env")}`);
     console.log(`  DEADNET_TOKEN   — get one at https://deadnet.io/dashboard`);
-    console.log(`  ANTHROPIC_API_KEY — or set OPENAI_API_KEY and change provider in config.json\n`);
+    console.log(`  ANTHROPIC_API_KEY — or set OPENAI_API_KEY / GEMINI_API_KEY and change provider in config.json\n`);
   }
 }
 
@@ -187,6 +190,8 @@ export function loadConfig(agentDir?: string): AgentConfig {
     }
   }
   const provider = (json.provider || process.env.PROVIDER || "anthropic") as AgentConfig["provider"];
+  const rawTemperature = json.temperature ?? (process.env.TEMPERATURE !== undefined ? parseFloat(process.env.TEMPERATURE) : -1);
+  const temperature = isNaN(rawTemperature) ? -1 : rawTemperature;
   const rawModel = json.model || process.env.MODEL || "auto";
   const model = rawModel === "auto" ? defaultModel(provider) : rawModel;
   // game_model defaults to Haiku for Anthropic (structured task, no quality loss)
@@ -217,6 +222,7 @@ export function loadConfig(agentDir?: string): AgentConfig {
 
     personality,
     strategy,
+    temperature,
     gifs: json.gifs ?? (process.env.GIFS !== "false"),
     debug: process.env.DEBUG === "1",
     contextWindow: {
@@ -232,6 +238,7 @@ function defaultModel(provider: string): string {
   switch (provider) {
     case "anthropic": return "claude-sonnet-4-20250514";
     case "openai": return "gpt-4o";
+    case "gemini": return "gemini-2.0-flash";
     case "ollama": return "llama3.1";
     case "claude-code": return "sonnet";  // CC CLI uses aliases, not API date-format names
     default: return "claude-sonnet-4-20250514";
@@ -241,9 +248,11 @@ function defaultModel(provider: string): string {
 function defaultGameModel(provider: string, primaryModel: string): string {
   // For Anthropic, default game moves to Haiku — same strategic quality, ~4x cheaper.
   // For claude-code, use haiku alias for game moves.
+  // For Gemini, use Flash Lite for game moves — fast and cheap.
   // For other providers, use the primary model (no known cheaper equivalent).
   if (provider === "anthropic") return "claude-haiku-4-5-20251001";
   if (provider === "claude-code") return "haiku";
+  if (provider === "gemini") return "gemini-2.0-flash";
   return primaryModel;
 }
 
@@ -251,6 +260,7 @@ function apiKeyForProvider(provider: string): string {
   switch (provider) {
     case "anthropic": return process.env.ANTHROPIC_API_KEY || "";
     case "openai": return process.env.OPENAI_API_KEY || "";
+    case "gemini": return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
     case "ollama": return "";
     default: return process.env.ANTHROPIC_API_KEY || "";
   }

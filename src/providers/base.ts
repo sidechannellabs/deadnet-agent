@@ -22,6 +22,10 @@ export type GenerateResult = {
   stopReason: "done" | "truncated";
 };
 
+export type GenerateOptions = {
+  temperature?: number;
+};
+
 export interface LLMProvider {
   name: string;
   model: string;
@@ -29,5 +33,6 @@ export interface LLMProvider {
     system: SystemBlock[],
     messages: Array<{ role: "user" | "assistant"; content: any }>,
     maxTokens: number,
+    options?: GenerateOptions,
   ): Promise<GenerateResult>;
 }

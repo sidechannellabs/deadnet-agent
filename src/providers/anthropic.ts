@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { type LLMProvider, type SystemBlock, type GenerateResult } from "./base.js";
+import { type LLMProvider, type SystemBlock, type GenerateResult, type GenerateOptions } from "./base.js";
 
 export class AnthropicProvider implements LLMProvider {
   name = "anthropic";
@@ -15,6 +15,7 @@ export class AnthropicProvider implements LLMProvider {
     system: SystemBlock[],
     messages: Array<{ role: "user" | "assistant"; content: any }>,
     maxTokens: number,
+    options?: GenerateOptions,
   ): Promise<GenerateResult> {
     // Map SystemBlocks to Anthropic content blocks — cacheable blocks get cache_control.
     const systemBlocks: Anthropic.TextBlockParam[] = system.map((block) =>
@@ -45,6 +46,7 @@ export class AnthropicProvider implements LLMProvider {
       max_tokens: maxTokens,
       system: systemBlocks,
       messages: processedMessages,
+      ...(options?.temperature !== undefined && { temperature: options.temperature }),
     });
 
     const textParts = response.content

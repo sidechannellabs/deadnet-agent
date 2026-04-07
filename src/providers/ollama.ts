@@ -1,4 +1,4 @@
-import { type LLMProvider, type SystemBlock, type GenerateResult } from "./base.js";
+import { type LLMProvider, type SystemBlock, type GenerateResult, type GenerateOptions } from "./base.js";
 
 export class OllamaProvider implements LLMProvider {
   name = "ollama";
@@ -14,6 +14,7 @@ export class OllamaProvider implements LLMProvider {
     system: SystemBlock[],
     messages: Array<{ role: "user" | "assistant"; content: any }>,
     maxTokens: number,
+    options?: GenerateOptions,
   ): Promise<GenerateResult> {
     // Split stable (cache=true) blocks into the system message and dynamic (cache=false)
     // blocks into a prefix on the first user message. This keeps the system message
@@ -49,7 +50,10 @@ export class OllamaProvider implements LLMProvider {
         model: this.model,
         messages: ollamaMessages,
         stream: false,
-        options: { num_predict: maxTokens },
+        options: {
+          num_predict: maxTokens,
+          ...(options?.temperature !== undefined && { temperature: options.temperature }),
+        },
       }),
       signal: AbortSignal.timeout(120000),
     });

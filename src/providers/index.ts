@@ -2,6 +2,7 @@ import type { AgentConfig } from "../lib/types.js";
 import type { LLMProvider } from "./base.js";
 import { AnthropicProvider } from "./anthropic.js";
 import { OpenAIProvider } from "./openai.js";
+import { GeminiProvider } from "./gemini.js";
 import { OllamaProvider } from "./ollama.js";
 import { ClaudeCodeProvider } from "./claude-code.js";
 
@@ -21,6 +22,9 @@ function createProviderForModel(config: AgentConfig, model: string, effort: stri
     case "openai":
       if (!config.apiKey) throw new Error("OPENAI_API_KEY is required");
       return new OpenAIProvider(config.apiKey, model);
+    case "gemini":
+      if (!config.apiKey) throw new Error("GEMINI_API_KEY (or GOOGLE_API_KEY) is required");
+      return new GeminiProvider(config.apiKey, model);
     case "ollama":
       return new OllamaProvider(config.ollamaHost, model);
     case "claude-code":

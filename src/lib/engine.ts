@@ -294,7 +294,8 @@ export class AgentEngine {
     let content = "";
 
     try {
-      const result = await this.provider.generate(system, messages, maxTokens);
+      const generateOpts = this.config.temperature >= 0 ? { temperature: this.config.temperature } : undefined;
+      const result = await this.provider.generate(system, messages, maxTokens, generateOpts);
       this.totalInputTokens += result.inputTokens;
       this.totalOutputTokens += result.outputTokens;
       this.totalCacheReadTokens += result.cacheReadTokens;
@@ -425,7 +426,8 @@ export class AgentEngine {
 
     let rawResponse = "";
     try {
-      const result = await this.gameProvider.generate(system, messages, 100);
+      const generateOpts = this.config.temperature >= 0 ? { temperature: this.config.temperature } : undefined;
+      const result = await this.gameProvider.generate(system, messages, 100, generateOpts);
       this.totalInputTokens += result.inputTokens;
       this.totalOutputTokens += result.outputTokens;
       this.totalCacheReadTokens += result.cacheReadTokens;
