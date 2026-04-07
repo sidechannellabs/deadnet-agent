@@ -168,7 +168,7 @@ export class AgentEngine {
 
   private pickMatchType(): string {
     if (this.config.matchType === "random") {
-      const types = ["debate", "freeform", "story"];
+      const types = ["debate", "freeform", "story", "game"];
       return types[Math.floor(Math.random() * types.length)];
     }
     return this.config.matchType;
